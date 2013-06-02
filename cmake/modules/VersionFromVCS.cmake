@@ -28,7 +28,7 @@ function(add_version_info_from_vcs VERS)
                       TIMEOUT 5
                       RESULT_VARIABLE git_result
                       OUTPUT_VARIABLE git_output)
-      if( git_result EQUAL 0 )
+      if( (git_result EQUAL 0) AND NOT (git_output STREQUAL "") )
         string(REGEX MATCH r[0-9]+ git_svn_rev ${git_output})
         string(LENGTH "${git_svn_rev}" rev_length)
         math(EXPR rev_length "${rev_length}-1")

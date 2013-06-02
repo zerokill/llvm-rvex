@@ -56,14 +56,14 @@ namespace Cpu0II {
     // This 4-bit field describes the insn type.
     TypePos  = 0,
     TypeMask = 0xf,
-/*
+
     // Solo instructions.
     SoloPos  = 4,
     SoloMask = 0x1,
 
     // Long instructions. -- only for X bundles
     LongPos = 5,
-    LongMask = 0x1*/
+    LongMask = 0x1
   };
   
   /// Target Operand Flag enum.

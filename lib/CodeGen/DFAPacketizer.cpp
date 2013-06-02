@@ -29,6 +29,10 @@
 #include "llvm/CodeGen/MachineInstrBundle.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/MC/MCInstrItineraries.h"
+
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
 DFAPacketizer::DFAPacketizer(const InstrItineraryData *I, const int (*SIT)[2],
@@ -64,11 +68,17 @@ void DFAPacketizer::ReadTable(unsigned int state) {
 // canReserveResources - Check if the resources occupied by a MCInstrDesc
 // are available in the current state.
 bool DFAPacketizer::canReserveResources(const llvm::MCInstrDesc *MID) {
+  DEBUG(errs() << "Dit is heel diep!\n");
   unsigned InsnClass = MID->getSchedClass();
+  DEBUG(errs() << "sched class:" << InsnClass <<"\n");
   const llvm::InstrStage *IS = InstrItins->beginStage(InsnClass);
+  DEBUG(errs() << "hier!\n");
   unsigned FuncUnits = IS->getUnits();
+  DEBUG(errs() << "hier 2!\n");
   UnsignPair StateTrans = UnsignPair(CurrentState, FuncUnits);
+  DEBUG(errs() << "hier 3!\n");
   ReadTable(CurrentState);
+  DEBUG(errs() << "hier 4!\n");
   return (CachedTable.count(StateTrans) != 0);
 }
 

@@ -28,8 +28,8 @@ class Format<bits<4> val> {
 }
 
 def Pseudo    : Format<0>;
-def FrmA      : Format<1>;
-def FrmL      : Format<2>;
+def FrmR      : Format<1>;
+def FrmI      : Format<2>;
 def FrmJ      : Format<3>;
 def FrmOther  : Format<4>; // Instruction w/ a custom format
 
@@ -65,6 +65,12 @@ class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
 
   // TSFlags layout should be kept in sync with Cpu0InstrInfo.h.
   let TSFlags{0-3}   = Cpu0Type.Value;
+  
+  bits<1> isCpu0Solo = 0;
+  let TSFlags{4} = isCpu0Solo;
+
+  bits<1> isCpu0Long = 0;
+  let TSFlags{5} = isCpu0Long;
 
   let DecoderNamespace = "Cpu0";
 
@@ -77,7 +83,7 @@ class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
 
 class FA<bits<8> op, dag outs, dag ins, string asmstr,
          list<dag> pattern, InstrItinClass itin>:
-      Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmA>
+      Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmR>
 {
   bits<4>  ra;
   bits<4>  rb;
@@ -97,7 +103,7 @@ class FA<bits<8> op, dag outs, dag ins, string asmstr,
 //===----------------------------------------------------------------------===//
 
 class FL<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
-         InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmL>
+         InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmI>
 {
   bits<4>  ra;
   bits<4>  rb;

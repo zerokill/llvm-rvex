@@ -26,6 +26,46 @@ namespace llvm {
 /// instruction info tracks.
 ///
 namespace Cpu0II {
+
+    enum Cpu0Type {
+    //===------------------------------------------------------------------===//
+    // Instruction encodings.  These are the standard/most common forms for
+    // Cpu0 instructions.
+    //
+
+    // Pseudo - This represents an instruction that is a pseudo instruction
+    // or one that has not been implemented yet.  It is illegal to code generate
+    // it, but tolerated for intermediate implementation stages.
+    Pseudo   = 0,
+
+    /// FrmR - This form is for instructions of the format R.
+    FrmR  = 1,
+    /// FrmI - This form is for instructions of the format I.
+    FrmI  = 2,
+    /// FrmJ - This form is for instructions of the format J.
+    FrmJ  = 3,
+    /// FrmOther - This form is for instructions that have no specific format.
+    FrmOther = 4,
+
+    FormMask = 15
+  };
+
+  // MCInstrDesc TSFlags
+  // *** Must match Cpu0InstrFormat*.td ***
+  enum {
+    // This 4-bit field describes the insn type.
+    TypePos  = 0,
+    TypeMask = 0xf,
+/*
+    // Solo instructions.
+    SoloPos  = 4,
+    SoloMask = 0x1,
+
+    // Long instructions. -- only for X bundles
+    LongPos = 5,
+    LongMask = 0x1*/
+  };
+  
   /// Target Operand Flag enum.
   enum TOF {
     //===------------------------------------------------------------------===//
@@ -82,28 +122,7 @@ namespace Cpu0II {
     MO_GOT_OFST
   };
 
-  enum {
-    //===------------------------------------------------------------------===//
-    // Instruction encodings.  These are the standard/most common forms for
-    // Cpu0 instructions.
-    //
 
-    // Pseudo - This represents an instruction that is a pseudo instruction
-    // or one that has not been implemented yet.  It is illegal to code generate
-    // it, but tolerated for intermediate implementation stages.
-    Pseudo   = 0,
-
-    /// FrmR - This form is for instructions of the format R.
-    FrmR  = 1,
-    /// FrmI - This form is for instructions of the format I.
-    FrmI  = 2,
-    /// FrmJ - This form is for instructions of the format J.
-    FrmJ  = 3,
-    /// FrmOther - This form is for instructions that have no specific format.
-    FrmOther = 4,
-
-    FormMask = 15
-  };
 }
 
 /// getCpu0RegisterNumbering - Given the enum value for some register,

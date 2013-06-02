@@ -68,6 +68,11 @@ Cpu0TargetLowering(Cpu0TargetMachine &TM)
   setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
 
   DEBUG(errs() << "wanneer ben ik hier!\n");
+
+  //TODO: scheduling modes: None, Source, RegPressure, Hybrid, ILP, VLIW
+  bool isVLIWEnabled = static_cast<Cpu0TargetMachine*>(&TM)->getSubtargetImpl()->isVLIWEnabled();
+  setSchedulingPreference(isVLIWEnabled ? Sched::VLIW : Sched::Hybrid);
+  
   setOperationAction(ISD::SDIV, MVT::i32, Expand);
   setOperationAction(ISD::SREM, MVT::i32, Legal);
   setOperationAction(ISD::UDIV, MVT::i32, Expand);

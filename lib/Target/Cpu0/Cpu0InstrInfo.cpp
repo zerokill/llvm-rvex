@@ -15,7 +15,13 @@
 #include "Cpu0TargetMachine.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #define GET_INSTRINFO_CTOR
+//#define GET_INSTRINFO_ENUM
 #include "Cpu0GenInstrInfo.inc"
+#include "Cpu0GenDFAPacketizer.inc"
+
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -62,6 +68,40 @@ copyPhysReg(MachineBasicBlock &MBB,
 
   if (SrcReg)
     MIB.addReg(SrcReg, getKillRegState(KillSrc));
+}
+
+DFAPacketizer *Cpu0InstrInfo::
+CreateTargetScheduleState(const TargetMachine *TM,
+                          const ScheduleDAG *DAG) const {
+  DEBUG(errs() << "Voor DFA!\n");
+  const InstrItineraryData *II = TM->getInstrItineraryData();
+  DEBUG(errs() << "Na DFA!\n");
+
+  DFAPacketizer *temp = TM->getSubtarget<Cpu0GenSubtargetInfo>().createDFAPacketizer(II);
+  DEBUG(errs() << "Na na DFA!\n");
+  return temp;
+}
+
+bool Cpu0InstrInfo::isSchedulingBoundary(const MachineInstr *MI,
+                                           const MachineBasicBlock *MBB,
+                                           const MachineFunction &MF) const {
+  //Implementation from HexagonInstrInfo.
+
+  // Debug info is never a scheduling boundary. It's necessary to be explicit
+  // due to the special treatment of IT instructions below, otherwise a
+  // dbg_value followed by an IT will result in the IT instruction being
+  // considered a scheduling hazard, which is wrong. It should be the actual
+  // instruction preceding the dbg_value instruction(s), just like it is when
+  // debug info is not present.
+  if (MI->isDebugValue())
+    return false;
+ 
+  // Terminators and labels can't be scheduled around.
+  if (MI->getDesc().isTerminator() || MI->isLabel() || MI->isInlineAsm()) {
+    return true;
+  }
+
+  return false;
 }
 
 MachineInstr*

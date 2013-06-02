@@ -59,10 +59,12 @@ class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
   //
   // Attributes specific to Cpu0 instructions...
   //
-  bits<4> FormBits = Form.Value;
+  Format Cpu0Type = f;
+
+
 
   // TSFlags layout should be kept in sync with Cpu0InstrInfo.h.
-  let TSFlags{3-0}   = FormBits;
+  let TSFlags{0-3}   = Cpu0Type.Value;
 
   let DecoderNamespace = "Cpu0";
 

@@ -1,4 +1,4 @@
-//===--- Tile64VLIWPacketizer.cpp - VLIW Packetizer -----------------------===//
+//===--- Cpu0VLIWPacketizer.cpp - VLIW Packetizer -----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//                               Tile64 Backend
+//                               Cpu0 Backend
 //
 // Author: David Juhasz
 // E-mail: juhda@caesar.elte.hu
@@ -17,7 +17,7 @@
 // European Social Fund (grant agreement no. TAMOP
 // 4.2.1./B-09/1/KMR-2010-0003).
 //
-// The original implementation of Tile64 VLIW Packetizer was made using that of
+// The original implementation of Cpu0 VLIW Packetizer was made using that of
 // Hexagon VLIW Packetizer.
 //
 // This implements a simple VLIW packetizer using DFA. The packetizer works on
@@ -32,8 +32,8 @@
 
 #define DEBUG_TYPE "packets"
 
-#include "Tile64.h"
-#include "Tile64InstrInfo.h"
+#include "Cpu0.h"
+#include "Cpu0InstrInfo.h"
 #include "llvm/CodeGen/DFAPacketizer.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -43,15 +43,19 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/MC/MCInstrItineraries.h"
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
-using namespace Tile64II;
+using namespace Cpu0II;
 
 namespace {
-  class Tile64VLIWPacketizer : public MachineFunctionPass {
+  class Cpu0VLIWPacketizer : public MachineFunctionPass {
 
   public:
     static char ID;
-    Tile64VLIWPacketizer() : MachineFunctionPass(ID) {}
+    Cpu0VLIWPacketizer() : MachineFunctionPass(ID) {}
 
     void getAnalysisUsage(AnalysisUsage &AU) const {
       AU.setPreservesCFG();
@@ -63,14 +67,14 @@ namespace {
     }
 
     const char *getPassName() const {
-      return "Tile64 VLIW Packetizer";
+      return "Cpu0 VLIW Packetizer";
     }
 
     bool runOnMachineFunction(MachineFunction &Fn);
   };
-  char Tile64VLIWPacketizer::ID = 0;
+  char Cpu0VLIWPacketizer::ID = 0;
 
-  class Tile64VLIWPacketizerList : public VLIWPacketizerList {
+  class Cpu0VLIWPacketizerList : public VLIWPacketizerList {
 
     // Check if there is a dependence between some instruction already in this
     // packet and this instruction.
@@ -82,7 +86,7 @@ namespace {
 
   public:
     // Ctor.
-    Tile64VLIWPacketizerList(MachineFunction &MF, MachineLoopInfo &MLI,
+    Cpu0VLIWPacketizerList(MachineFunction &MF, MachineLoopInfo &MLI,
                              MachineDominatorTree &MDT);
 
 		//default implementation of virtual function addToPacket will do
@@ -116,43 +120,44 @@ namespace {
     // isDirectJump - Return true if the instruction is a direct jump.
     bool isDirectJump(const MachineInstr *MI) const;
 
-    // isTile64SoloInstruction - Return true if TSFlags:4 is 1.
-    bool isTile64SoloInstruction(const MachineInstr *MI) const;
+    // isCpu0SoloInstruction - Return true if TSFlags:4 is 1.
+    bool isCpu0SoloInstruction(const MachineInstr *MI) const;
 
-    // isTile64LongInstruction - Return true if TSFlags:5 is 1.
-    bool isTile64LongInstruction(const MachineInstr *MI) const;
+    // isCpu0LongInstruction - Return true if TSFlags:5 is 1.
+    bool isCpu0LongInstruction(const MachineInstr *MI) const;
 
-    // Tile64TypeOf - Return Tile64Type of MI.
-		Tile64Type Tile64TypeOf(const MachineInstr *MI) const;
+    // Cpu0TypeOf - Return Cpu0Type of MI.
+		Cpu0Type Cpu0TypeOf(const MachineInstr *MI) const;
 
-    // isTile64CtrInstruction - Return true if Tile64Type of MI is TypeCtr.
-    bool isTile64CtrInstruction(const MachineInstr *MI) const;
+    // isCpu0CtrInstruction - Return true if Cpu0Type of MI is TypeCtr.
+    bool isCpu0CtrInstruction(const MachineInstr *MI) const;
 
-		// isTile64MemInstruction - Return true if Tile64Type of MI is TypeMeS or
+		// isCpu0MemInstruction - Return true if Cpu0Type of MI is TypeMeS or
 		// TypeMeL.
-    bool isTile64MemInstruction(const MachineInstr *MI) const;
+    bool isCpu0MemInstruction(const MachineInstr *MI) const;
   };
 }
 
-// Tile64VLIWPacketizerList Ctor.
-Tile64VLIWPacketizerList::Tile64VLIWPacketizerList(MachineFunction &MF,
+// Cpu0VLIWPacketizerList Ctor.
+Cpu0VLIWPacketizerList::Cpu0VLIWPacketizerList(MachineFunction &MF,
                                                    MachineLoopInfo &MLI,
                                                    MachineDominatorTree &MDT)
   : VLIWPacketizerList(MF, MLI, MDT, true){
 }
 
-bool Tile64VLIWPacketizer::runOnMachineFunction(MachineFunction &Fn) {
+bool Cpu0VLIWPacketizer::runOnMachineFunction(MachineFunction &Fn) {
+  DEBUG(errs() << "Voor VLIW packetizer!\n");
   const TargetInstrInfo *TII = Fn.getTarget().getInstrInfo();
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfo>();
   MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
 
   // Instantiate the packetizer.
-  Tile64VLIWPacketizerList Packetizer(Fn, MLI, MDT);
+  Cpu0VLIWPacketizerList Packetizer(Fn, MLI, MDT);
 
   // DFA state table should not be empty.
   assert(Packetizer.getResourceTracker() && "Empty DFA table!");
 
-	// Hexagon deletes KILL instructions here, but in the case of Tile64 there
+	// Hexagon deletes KILL instructions here, but in the case of Cpu0 there
 	// should be no KILLs, as there are no sub-registers.
 	
   // Loop over all of the basic blocks.
@@ -186,13 +191,13 @@ bool Tile64VLIWPacketizer::runOnMachineFunction(MachineFunction &Fn) {
 
 
 // initPacketizerState - Initialize packetizer flags
-void Tile64VLIWPacketizerList::initPacketizerState() {
+void Cpu0VLIWPacketizerList::initPacketizerState() {
   Dependence = false;
   FoundSequentialDependence = false;
 }
 
 // ignorePseudoInstruction - Ignore bundling of pseudo instructions.
-bool Tile64VLIWPacketizerList::ignorePseudoInstruction(MachineInstr *MI,
+bool Cpu0VLIWPacketizerList::ignorePseudoInstruction(MachineInstr *MI,
                                                        MachineBasicBlock *MBB) {
   assert(!isSoloInstruction(MI) && "Solo instruction should not be here!");
   if(MI->isDebugValue()) {
@@ -207,10 +212,10 @@ bool Tile64VLIWPacketizerList::ignorePseudoInstruction(MachineInstr *MI,
 
 // isSoloInstruction - Returns true for instructions that must be
 // scheduled in their own packet.
-bool Tile64VLIWPacketizerList::isSoloInstruction(MachineInstr *MI) {
+bool Cpu0VLIWPacketizerList::isSoloInstruction(MachineInstr *MI) {
   //Tile Reference Manual doesn't imply any solo instructions.
   //TODO: hexagon says EHLabel to be a solo instruction as well
-  if (MI->isInlineAsm() || isTile64SoloInstruction(MI)) {
+  if (MI->isInlineAsm() || isCpu0SoloInstruction(MI)) {
     return true;
   } else {
     return false;
@@ -218,8 +223,8 @@ bool Tile64VLIWPacketizerList::isSoloInstruction(MachineInstr *MI) {
 }
 
 // canBundleIntoCurrentPacket - check target-specific bundle-constraints, see
-// Tile64Schedule.td bundle-approach.
-bool Tile64VLIWPacketizerList::canBundleIntoCurrentPacket(MachineInstr *MI) {
+// Cpu0Schedule.td bundle-approach.
+bool Cpu0VLIWPacketizerList::canBundleIntoCurrentPacket(MachineInstr *MI) {
   MachineInstr *MI0, *MI1;
 
   //Note that physical units could execute current packet and MI, which
@@ -229,13 +234,13 @@ bool Tile64VLIWPacketizerList::canBundleIntoCurrentPacket(MachineInstr *MI) {
     return true;
   case 1:
     MI0 = CurrentPacketMIs[0];
-    return !((isTile64CtrInstruction(MI) && isTile64MemInstruction(MI0)) ||
-             (isTile64CtrInstruction(MI0) && isTile64MemInstruction(MI)));
+    return !((isCpu0CtrInstruction(MI) && isCpu0MemInstruction(MI0)) ||
+             (isCpu0CtrInstruction(MI0) && isCpu0MemInstruction(MI)));
   case 2:
     MI0 = CurrentPacketMIs[0];
     MI1 = CurrentPacketMIs[1];
-    return (!isTile64LongInstruction(MI) && !isTile64LongInstruction(MI0) &&
-            !isTile64LongInstruction(MI1));
+    return (!isCpu0LongInstruction(MI) && !isCpu0LongInstruction(MI0) &&
+            !isCpu0LongInstruction(MI1));
   default:
     llvm_unreachable("3 pipelines can't execute more than 3 instructions!");
   }
@@ -245,7 +250,7 @@ bool Tile64VLIWPacketizerList::canBundleIntoCurrentPacket(MachineInstr *MI) {
 // SUI is the current instruction that is out side of the current packet.
 // SUJ is the current instruction inside the current packet against which that
 // SUI will be packetized.
-bool Tile64VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
+bool Cpu0VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
                                                           SUnit *SUJ) {
   MachineInstr *I = SUI->getInstr();
   MachineInstr *J = SUJ->getInstr();
@@ -256,7 +261,7 @@ bool Tile64VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
   const MCInstrDesc &MCIDI = I->getDesc();
   const MCInstrDesc &MCIDJ = J->getDesc();
 
-  //In the case of Tile64, two control flow instructions cannot have resource
+  //In the case of Cpu0, two control flow instructions cannot have resource
   //in the same time.
 
   if(SUJ->isSucc(SUI)) {
@@ -280,7 +285,7 @@ bool Tile64VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
         // do nothing
       }
 
-      //Hexagon handles predicated instructions here, but Tile64 instructions
+      //Hexagon handles predicated instructions here, but Cpu0 instructions
       //are not predicated
 
       else if(isDirectJump(I) &&
@@ -299,7 +304,7 @@ bool Tile64VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
       }
 
       // zero-reg can be targeted by multiple instructions
-      else if(DepType == SDep::Output && DepReg != T64::Zero) {
+      else if(DepType == SDep::Output && DepReg != Cpu0::ZERO) {
         FoundSequentialDependence = true;
       }
 
@@ -325,7 +330,7 @@ bool Tile64VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
 }
 
 // isLegalToPruneDependencies
-bool Tile64VLIWPacketizerList::isLegalToPruneDependencies(SUnit *SUI,
+bool Cpu0VLIWPacketizerList::isLegalToPruneDependencies(SUnit *SUI,
                                                           SUnit *SUJ) {
   MachineInstr *I = SUI->getInstr();
   assert(I && SUJ->getInstr() && "Unable to packetize null instruction!");
@@ -342,50 +347,55 @@ bool Tile64VLIWPacketizerList::isLegalToPruneDependencies(SUnit *SUI,
 //===----------------------------------------------------------------------===//
 
 // isDirectJump - Return true if the instruction is a direct jump.
-bool Tile64VLIWPacketizerList::isDirectJump(const MachineInstr *MI) const {
-  return (MI->getOpcode() == T64::J);
+bool Cpu0VLIWPacketizerList::isDirectJump(const MachineInstr *MI) const {
+  //return (MI->getOpcode() == T64::J);
+  return (MI->getOpcode() == Cpu0::NOP);
 }
 
-// isTile64SoloInstruction - Return true if TSFlags:4 is 1.
-bool Tile64VLIWPacketizerList::
-isTile64SoloInstruction(const MachineInstr *MI) const {
+// isCpu0SoloInstruction - Return true if TSFlags:4 is 1.
+bool Cpu0VLIWPacketizerList::
+isCpu0SoloInstruction(const MachineInstr *MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
-  return ((F >> SoloPos) & SoloMask);
+  //return ((F >> SoloPos) & SoloMask);
+  return false;
 }
 
-// isTile64LongInstruction - Return true if TSFlags:5 is 1.
-bool Tile64VLIWPacketizerList::
-isTile64LongInstruction(const MachineInstr *MI) const {
+// isCpu0LongInstruction - Return true if TSFlags:5 is 1.
+bool Cpu0VLIWPacketizerList::
+isCpu0LongInstruction(const MachineInstr *MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
-  return ((F >> LongPos) & LongMask);
+  //return ((F >> LongPos) & LongMask);
+  return false;
 }
 
-// Tile64TypeOf - Return the appropriate value of Tile64Type.
-Tile64Type Tile64VLIWPacketizerList::
-Tile64TypeOf(const MachineInstr *MI) const {
+// Cpu0TypeOf - Return the appropriate value of Cpu0Type.
+Cpu0Type Cpu0VLIWPacketizerList::
+Cpu0TypeOf(const MachineInstr *MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
-	return (Tile64Type) ((F >> TypePos) & TypeMask);
+	return (Cpu0Type) ((F >> TypePos) & TypeMask);
 }
 
-// isTile64CtrInstruction - Return true if Tile64Type of MI is TypeCtr.
-bool Tile64VLIWPacketizerList::
-isTile64CtrInstruction(const MachineInstr *MI) const {
-  return (Tile64TypeOf(MI) == TypeCtr);
+// isCpu0CtrInstruction - Return true if Cpu0Type of MI is TypeCtr.
+bool Cpu0VLIWPacketizerList::
+isCpu0CtrInstruction(const MachineInstr *MI) const {
+  //return (Cpu0TypeOf(MI) == TypeCtr);
+  return false;
 }
 
-// isTile64MemInstruction - Return true if Tile64Type of MI is TypeMeS or
+// isCpu0MemInstruction - Return true if Cpu0Type of MI is TypeMeS or
 // TypeMeL.
-bool Tile64VLIWPacketizerList::
-isTile64MemInstruction(const MachineInstr *MI) const {
-  Tile64Type type = Tile64TypeOf(MI);
-  return (type == TypeMeS || type == TypeMeL);
+bool Cpu0VLIWPacketizerList::
+isCpu0MemInstruction(const MachineInstr *MI) const {
+  Cpu0Type type = Cpu0TypeOf(MI);
+  //return (type == TypeMeS || type == TypeMeL);
+  return false;
 }
 
 //===----------------------------------------------------------------------===//
 //                         Public Constructor Functions
 //===----------------------------------------------------------------------===//
 
-FunctionPass *llvm::createTile64VLIWPacketizer() {
-  return new Tile64VLIWPacketizer();
+FunctionPass *llvm::createCpu0VLIWPacketizer() {
+  return new Cpu0VLIWPacketizer();
 }
 

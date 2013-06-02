@@ -27,7 +27,11 @@ class StringRef;
 class Cpu0Subtarget : public Cpu0GenSubtargetInfo {
   virtual void anchor();
 
+  bool IsVLIWEnabled;
+
 public:
+
+  bool isVLIWEnabled() const { return IsVLIWEnabled; }
   // NOTE: O64 will not be supported.
   enum Cpu0ABIEnum {
     UnknownABI, O32

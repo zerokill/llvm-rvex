@@ -16,8 +16,10 @@
 
 #include "Cpu0.h"
 #include "Cpu0RegisterInfo.h"
+#include "MCTargetDesc/Cpu0BaseInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
+
 
 #define GET_INSTRINFO_HEADER
 #include "Cpu0GenInstrInfo.inc"
@@ -46,6 +48,13 @@ public:
                                                  int FrameIx, uint64_t Offset,
                                                  const MDNode *MDPtr,
                                                  DebugLoc DL) const;
+
+  virtual DFAPacketizer *CreateTargetScheduleState(const TargetMachine *TM,
+                                                  const ScheduleDAG *DAG) const;
+
+  virtual bool isSchedulingBoundary(const MachineInstr *MI,
+                                    const MachineBasicBlock *MBB,
+                                    const MachineFunction &MF) const;
 };
 }
 

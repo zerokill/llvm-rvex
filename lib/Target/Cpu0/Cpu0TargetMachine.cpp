@@ -82,6 +82,7 @@ public:
     return *getCpu0TargetMachine().getSubtargetImpl();
   }
   virtual bool addInstSelector();
+  virtual bool addPreEmitPass();
 };
 } // namespace
 
@@ -93,6 +94,13 @@ TargetPassConfig *Cpu0TargetMachine::createPassConfig(PassManagerBase &PM) {
 // the ISelDag to gen Cpu0 code.
 bool Cpu0PassConfig::addInstSelector() {
   addPass(createCpu0ISelDag(getCpu0TargetMachine()));
+  return false;
+}
+
+bool Cpu0PassConfig::addPreEmitPass() {
+  if(static_cast<Cpu0TargetMachine*>(TM)->getSubtargetImpl()->isVLIWEnabled()) {
+    addPass(createCpu0VLIWPacketizer());
+  }
   return false;
 }
 

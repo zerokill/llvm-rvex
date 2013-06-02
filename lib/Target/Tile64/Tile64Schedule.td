@@ -226,14 +226,14 @@ def PSEUDO : InstrItinClass;
 // Itineraries
 
 def Tile64Itineraries : ProcessorItineraries<[P0, P1, P2], [], [
-  InstrItinData<ArS,    [InstrStage<1, [P0, P1]>]>,
-  InstrItinData<ArL,    [InstrStage<1, [P0, P1]>]>,
-  InstrItinData<BmS,    [InstrStage<1, [P0]>]>,
-  InstrItinData<BmL,    [InstrStage<1, [P0]>]>,
-  InstrItinData<Ctr,    [InstrStage<1, [P1]>]>,
-  InstrItinData<MeS,    [InstrStage<1, [P2]>]>,
-  InstrItinData<MeL,    [InstrStage<1, [P2]>]>,
-  InstrItinData<Ill,    [InstrStage<1, [P1]>]>,
+  InstrItinData<ArS,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<ArL,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<BmS,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<BmL,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<Ctr,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<MeS,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<MeL,    [InstrStage<1, [P0, P1, P2]>]>,
+  InstrItinData<Ill,    [InstrStage<1, [P0, P1, P2]>]>,
   InstrItinData<PSEUDO, [InstrStage<1, [P0, P1, P2]>]>
   ]>;
 

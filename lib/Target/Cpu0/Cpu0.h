@@ -24,6 +24,8 @@ namespace llvm {
 
   FunctionPass *createCpu0ISelDag(Cpu0TargetMachine &TM);
 
+  FunctionPass *createCpu0VLIWPacketizer();
+
 } // end namespace llvm;
 
 #endif

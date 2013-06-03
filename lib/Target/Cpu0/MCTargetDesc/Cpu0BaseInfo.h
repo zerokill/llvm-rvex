@@ -1,4 +1,4 @@
-//===-- Cpu0BaseInfo.h - Top level definitions for CPU0 MC ------*- C++ -*-===//
+//===-- Cpu0BaseInfo.h - Top level definitions for Cpu0 ----*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,25 +7,33 @@
 //
 //===----------------------------------------------------------------------===//
 //
+//                               Cpu0 Backend
+//
+// Author: David Juhasz
+// E-mail: juhda@caesar.elte.hu
+// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
+//
+// The research is supported by the European Union and co-financed by the
+// European Social Fund (grant agreement no. TAMOP
+// 4.2.1./B-09/1/KMR-2010-0003).
+//
 // This file contains small standalone helper functions and enum definitions for
 // the Cpu0 target useful for the compiler back-end and the MC libraries.
+// As such, it deliberately does not include references to LLVM core
+// code gen types, passes, etc..
 //
 //===----------------------------------------------------------------------===//
-#ifndef CPU0BASEINFO_H
-#define CPU0BASEINFO_H
 
-#include "Cpu0FixupKinds.h"
-#include "Cpu0MCTargetDesc.h"
-#include "llvm/MC/MCExpr.h"
-#include "llvm/Support/DataTypes.h"
-#include "llvm/Support/ErrorHandling.h"
+#ifndef Cpu0BASEINFO_H
+#define Cpu0BASEINFO_H
 
 namespace llvm {
 
-/// Cpu0II - This namespace holds all of the target specific flags that
-/// instruction info tracks.
-///
+// Cpu0II - This namespace holds all of the target specific flags that /
+//instruction info tracks.
+//
 namespace Cpu0II {
+  // *** The code below must match Cpu0InstrFormat*.td *** //
 
     enum Cpu0Type {
       TypeIIAlu    = 0,
@@ -77,67 +85,8 @@ namespace Cpu0II {
     LongPos = 5,
     LongMask = 0x1
   };
-  
-  /// Target Operand Flag enum.
-  enum TOF {
-    //===------------------------------------------------------------------===//
-    // Cpu0 Specific MachineOperand flags.
 
-    MO_NO_FLAG,
-
-    /// MO_GOT16 - Represents the offset into the global offset table at which
-    /// the address the relocation entry symbol resides during execution.
-    MO_GOT16,
-    MO_GOT,
-
-    /// MO_GOT_CALL - Represents the offset into the global offset table at
-    /// which the address of a call site relocation entry symbol resides
-    /// during execution. This is different from the above since this flag
-    /// can only be present in call instructions.
-    MO_GOT_CALL,
-
-    /// MO_GPREL - Represents the offset from the current gp value to be used
-    /// for the relocatable object file being produced.
-    MO_GPREL,
-
-    /// MO_ABS_HI/LO - Represents the hi or low part of an absolute symbol
-    /// address.
-    MO_ABS_HI,
-    MO_ABS_LO,
-
-    /// MO_TLSGD - Represents the offset into the global offset table at which
-    // the module ID and TSL block offset reside during execution (General
-    // Dynamic TLS).
-    MO_TLSGD,
-
-    /// MO_TLSLDM - Represents the offset into the global offset table at which
-    // the module ID and TSL block offset reside during execution (Local
-    // Dynamic TLS).
-    MO_TLSLDM,
-    MO_DTPREL_HI,
-    MO_DTPREL_LO,
-
-    /// MO_GOTTPREL - Represents the offset from the thread pointer (Initial
-    // Exec TLS).
-    MO_GOTTPREL,
-
-    /// MO_TPREL_HI/LO - Represents the hi and low part of the offset from
-    // the thread pointer (Local Exec TLS).
-    MO_TPREL_HI,
-    MO_TPREL_LO,
-
-    // N32/64 Flags.
-    MO_GPOFF_HI,
-    MO_GPOFF_LO,
-    MO_GOT_DISP,
-    MO_GOT_PAGE,
-    MO_GOT_OFST
-  };
-
-
-}
-
-/// getCpu0RegisterNumbering - Given the enum value for some register,
+  /// getCpu0RegisterNumbering - Given the enum value for some register,
 /// return the number that it corresponds to.
 inline static unsigned getCpu0RegisterNumbering(unsigned RegEnum)
 {
@@ -178,33 +127,65 @@ inline static unsigned getCpu0RegisterNumbering(unsigned RegEnum)
   }
 }
 
-inline static std::pair<const MCSymbolRefExpr*, int64_t>
-Cpu0GetSymAndOffset(const MCFixup &Fixup) {
-  MCFixupKind FixupKind = Fixup.getKind();
+enum TOF {
+  //===------------------------------------------------------------------===//
+  // Cpu0 Specific MachineOperand flags.
 
-  if ((FixupKind < FirstTargetFixupKind) ||
-      (FixupKind >= MCFixupKind(Cpu0::LastTargetFixupKind)))
-    return std::make_pair((const MCSymbolRefExpr*)0, (int64_t)0);
+  MO_NO_FLAG,
 
-  const MCExpr *Expr = Fixup.getValue();
-  MCExpr::ExprKind Kind = Expr->getKind();
+  /// MO_GOT16 - Represents the offset into the global offset table at which
+  /// the address the relocation entry symbol resides during execution.
+  MO_GOT16,
+  MO_GOT,
 
-  if (Kind == MCExpr::Binary) {
-    const MCBinaryExpr *BE = static_cast<const MCBinaryExpr*>(Expr);
-    const MCExpr *LHS = BE->getLHS();
-    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(BE->getRHS());
+  /// MO_GOT_CALL - Represents the offset into the global offset table at
+  /// which the address of a call site relocation entry symbol resides
+  /// during execution. This is different from the above since this flag
+  /// can only be present in call instructions.
+  MO_GOT_CALL,
 
-    if ((LHS->getKind() != MCExpr::SymbolRef) || !CE)
-      return std::make_pair((const MCSymbolRefExpr*)0, (int64_t)0);
+  /// MO_GPREL - Represents the offset from the current gp value to be used
+  /// for the relocatable object file being produced.
+  MO_GPREL,
 
-    return std::make_pair(cast<MCSymbolRefExpr>(LHS), CE->getValue());
-  }
+  /// MO_ABS_HI/LO - Represents the hi or low part of an absolute symbol
+  /// address.
+  MO_ABS_HI,
+  MO_ABS_LO,
 
-  if (Kind != MCExpr::SymbolRef)
-    return std::make_pair((const MCSymbolRefExpr*)0, (int64_t)0);
+  /// MO_TLSGD - Represents the offset into the global offset table at which
+  // the module ID and TSL block offset reside during execution (General
+  // Dynamic TLS).
+  MO_TLSGD,
 
-  return std::make_pair(cast<MCSymbolRefExpr>(Expr), 0);
-}
-}
+  /// MO_TLSLDM - Represents the offset into the global offset table at which
+  // the module ID and TSL block offset reside during execution (Local
+  // Dynamic TLS).
+  MO_TLSLDM,
+  MO_DTPREL_HI,
+  MO_DTPREL_LO,
+
+  /// MO_GOTTPREL - Represents the offset from the thread pointer (Initial
+  // Exec TLS).
+  MO_GOTTPREL,
+
+  /// MO_TPREL_HI/LO - Represents the hi and low part of the offset from
+  // the thread pointer (Local Exec TLS).
+  MO_TPREL_HI,
+  MO_TPREL_LO,
+
+  // N32/64 Flags.
+  MO_GPOFF_HI,
+  MO_GPOFF_LO,
+  MO_GOT_DISP,
+  MO_GOT_PAGE,
+  MO_GOT_OFST
+};
+
+  // *** The code above must match Cpu0InstrFormat*.td *** //
+
+} // End namespace Cpu0II.
+
+} // End namespace llvm.
 
 #endif

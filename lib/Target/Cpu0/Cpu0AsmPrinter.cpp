@@ -117,7 +117,7 @@ void Cpu0AsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
   // Set CPU Bitmask.
   for (; i != e; ++i) {
     unsigned Reg = CSI[i].getReg();
-    unsigned RegNum = getCpu0RegisterNumbering(Reg);
+      unsigned RegNum = Cpu0II::getCpu0RegisterNumbering(Reg);
     CPUBitmask |= (1 << RegNum);
   }
 
@@ -258,5 +258,4 @@ void Cpu0AsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
 // Force static initialization.
 extern "C" void LLVMInitializeCpu0AsmPrinter() {
   RegisterAsmPrinter<Cpu0AsmPrinter> X(TheCpu0Target);
-  RegisterAsmPrinter<Cpu0AsmPrinter> Y(TheCpu0elTarget);
 }

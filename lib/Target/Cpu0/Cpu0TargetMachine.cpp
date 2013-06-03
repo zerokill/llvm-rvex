@@ -22,8 +22,7 @@ extern "C" void LLVMInitializeCpu0Target() {
   // Register the target.
   //- Big endian Target Machine
   RegisterTargetMachine<Cpu0ebTargetMachine> X(TheCpu0Target);
-  //- Little endian Target Machine
-  RegisterTargetMachine<Cpu0elTargetMachine> Y(TheCpu0elTarget);
+
 }
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
@@ -45,9 +44,9 @@ Cpu0TargetMachine(const Target &T, StringRef TT,
     DL(isLittle ?
                ("e-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32") :
                ("E-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32")),
-    InstrInfo(*this),
-    FrameLowering(Subtarget), 
-    TLInfo(*this), TSInfo(*this) {
+    InstrInfo(*this), TLInfo(*this), TSInfo(*this),
+    FrameLowering(Subtarget),
+    InstrItins(&Subtarget.getInstItineraryData()) {
 }
 
 void Cpu0ebTargetMachine::anchor() { }

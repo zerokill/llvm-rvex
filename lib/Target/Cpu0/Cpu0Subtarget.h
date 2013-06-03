@@ -28,6 +28,7 @@ class Cpu0Subtarget : public Cpu0GenSubtargetInfo {
   virtual void anchor();
 
   bool IsVLIWEnabled;
+  InstrItineraryData InstrItins;
 
 public:
 
@@ -54,7 +55,7 @@ protected:
   // isLinux - Target system is Linux. Is false we consider ELFOS for now.
   bool IsLinux;
 
-  InstrItineraryData InstrItins;
+  
 
 public:
   unsigned getTargetABI() const { return Cpu0ABI; }
@@ -63,6 +64,8 @@ public:
   /// of the specified triple.
   Cpu0Subtarget(const std::string &TT, const std::string &CPU,
                 const std::string &FS, bool little);
+
+  const InstrItineraryData &getInstItineraryData() const { return InstrItins; }
 
 //- Vitual function, must have
   /// ParseSubtargetFeatures - Parses features string setting specified

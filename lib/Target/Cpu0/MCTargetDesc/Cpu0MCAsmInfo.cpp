@@ -1,4 +1,4 @@
-//===-- Cpu0MCAsmInfo.cpp - Cpu0 Asm Properties ---------------------------===//
+//===-- Cpu0MCAsmInfo.cpp - Cpu0 asm properties -----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -6,6 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+//                               Cpu0 Backend
+//
+// Author: David Juhasz
+// E-mail: juhda@caesar.elte.hu
+// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
+//
+// The research is supported by the European Union and co-financed by the
+// European Social Fund (grant agreement no. TAMOP
+// 4.2.1./B-09/1/KMR-2010-0003).
 //
 // This file contains the declarations of the Cpu0MCAsmInfo properties.
 //
@@ -16,26 +26,20 @@
 
 using namespace llvm;
 
-void Cpu0MCAsmInfo::anchor() { }
+Cpu0ELFMCAsmInfo::Cpu0ELFMCAsmInfo(const Target &T, StringRef TT) {
+  //Only members with inappropriate default values are listed here.
 
-Cpu0MCAsmInfo::Cpu0MCAsmInfo(const Target &T, StringRef TT) {
-  Triple TheTriple(TT);
-  if ((TheTriple.getArch() == Triple::cpu0))
-    IsLittleEndian = false;
+  MaxInstLength = 10;
 
-  AlignmentIsInBytes          = false;
-  Data16bitsDirective         = "\t.2byte\t";
-  Data32bitsDirective         = "\t.4byte\t";
-  Data64bitsDirective         = "\t.8byte\t";
-  PrivateGlobalPrefix         = "$";
-  CommentString               = "#";
-  ZeroDirective               = "\t.space\t";
-  GPRel32Directive            = "\t.gpword\t";
-  GPRel64Directive            = "\t.gpdword\t";
-  WeakRefDirective            = "\t.weak\t";
+  Data32bitsDirective = "\t.word\t";
+  Data64bitsDirective = 0;
+  ZeroDirective = "\t.skip\t";
+
+  GlobalDirective = "\t.global\t";
+  ExternDirective = "\t.globl\t";
 
   SupportsDebugInformation = true;
-  ExceptionsType = ExceptionHandling::DwarfCFI;
-  HasLEB128 = true;
-  DwarfRegNumForCFI = true;
+  
+  UsesELFSectionDirectiveForBSS = true;
 }
+

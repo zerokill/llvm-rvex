@@ -68,19 +68,11 @@ void DFAPacketizer::ReadTable(unsigned int state) {
 // canReserveResources - Check if the resources occupied by a MCInstrDesc
 // are available in the current state.
 bool DFAPacketizer::canReserveResources(const llvm::MCInstrDesc *MID) {
-  DEBUG(errs() << "Dit is heel diep!\n");
   unsigned InsnClass = MID->getSchedClass();
-  DEBUG(errs() << "sched class:" << InsnClass <<"\n");
-  const llvm::InstrStage *IS;
-  DEBUG(errs() << "eerst!\n");
-  IS = InstrItins->beginStage(InsnClass);
-  DEBUG(errs() << "hier!\n");
+  const llvm::InstrStage *IS = InstrItins->beginStage(InsnClass);
   unsigned FuncUnits = IS->getUnits();
-  DEBUG(errs() << "hier 2!\n");
   UnsignPair StateTrans = UnsignPair(CurrentState, FuncUnits);
-  DEBUG(errs() << "hier 3!\n");
   ReadTable(CurrentState);
-  DEBUG(errs() << "hier 4!\n");
   return (CachedTable.count(StateTrans) != 0);
 }
 

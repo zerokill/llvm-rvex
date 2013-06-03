@@ -30,9 +30,10 @@ namespace llvm {
     Cpu0Subtarget       Subtarget;
     const DataLayout    DL; // Calculates type size & alignment
     Cpu0InstrInfo       InstrInfo;	//- Instructions
-    Cpu0FrameLowering   FrameLowering;	//- Stack(Frame) and Stack direction
     Cpu0TargetLowering  TLInfo;	//- Stack(Frame) and Stack direction
     Cpu0SelectionDAGInfo TSInfo;	//- Map .bc DAG to backend DAG
+    Cpu0FrameLowering   FrameLowering;  //- Stack(Frame) and Stack direction
+    const InstrItineraryData *InstrItins;
 
   public:
     Cpu0TargetMachine(const Target &T, StringRef TT,
@@ -60,6 +61,10 @@ namespace llvm {
 
     virtual const Cpu0SelectionDAGInfo* getSelectionDAGInfo() const {
       return &TSInfo;
+    }
+
+    virtual const InstrItineraryData *getInstrItineraryData() const {
+      return InstrItins;
     }
 
     // Pass Pipeline Configuration

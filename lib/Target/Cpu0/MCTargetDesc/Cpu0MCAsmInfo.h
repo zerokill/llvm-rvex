@@ -1,4 +1,4 @@
-//===-- Cpu0MCAsmInfo.h - Cpu0 Asm Info ------------------------*- C++ -*--===//
+//=====-- Cpu0MCAsmInfo.h - Cpu0 asm properties -----------*- C++ -*--====//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,25 +7,34 @@
 //
 //===----------------------------------------------------------------------===//
 //
+//                               Cpu0 Backend
+//
+// Author: David Juhasz
+// E-mail: juhda@caesar.elte.hu
+// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
+//
+// The research is supported by the European Union and co-financed by the
+// European Social Fund (grant agreement no. TAMOP
+// 4.2.1./B-09/1/KMR-2010-0003).
+//
 // This file contains the declaration of the Cpu0MCAsmInfo class.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CPU0TARGETASMINFO_H
-#define CPU0TARGETASMINFO_H
+#ifndef Cpu0TARGETASMINFO_H
+#define Cpu0TARGETASMINFO_H
 
+#include "llvm/ADT/StringRef.h"
 #include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm {
-  class StringRef;
   class Target;
 
-  class Cpu0MCAsmInfo : public MCAsmInfo {
-    virtual void anchor();
-  public:
-    explicit Cpu0MCAsmInfo(const Target &T, StringRef TT);
+  struct Cpu0ELFMCAsmInfo : public MCAsmInfo {
+    explicit Cpu0ELFMCAsmInfo(const Target &T, StringRef TT);
   };
 
 } // namespace llvm
 
 #endif
+

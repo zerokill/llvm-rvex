@@ -12,12 +12,10 @@
 #include "llvm/Support/TargetRegistry.h"
 using namespace llvm;
 
-Target llvm::TheCpu0Target, llvm::TheCpu0elTarget;
+Target llvm::TheCpu0Target;
 
 extern "C" void LLVMInitializeCpu0TargetInfo() {
   RegisterTarget<Triple::cpu0,
         /*HasJIT=*/true> X(TheCpu0Target, "cpu0", "Cpu0");
 
-  RegisterTarget<Triple::cpu0el,
-        /*HasJIT=*/true> Y(TheCpu0elTarget, "cpu0el", "Cpu0el");
 }

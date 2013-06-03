@@ -28,6 +28,18 @@ namespace llvm {
 namespace Cpu0II {
 
     enum Cpu0Type {
+      TypeIIAlu    = 0,
+      TypeIILoad   = 1,
+      TypeIIStore  = 2,
+      TypeIIBranch = 3,
+      TypeIIHiLo   = 4,
+      TypeIIImul   = 5,
+      TypeIIIdiv   = 6,
+      TypeIIPseudo = 7,
+
+    };
+
+    enum {
     //===------------------------------------------------------------------===//
     // Instruction encodings.  These are the standard/most common forms for
     // Cpu0 instructions.

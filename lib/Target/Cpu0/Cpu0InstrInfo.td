@@ -137,10 +137,10 @@ def store_a         : AlignedStore<store>;
 
 // Arithmetic and logical instructions with 3 register operands.
 class ArithLogicR<bits<8> op, string instr_asm, SDNode OpNode,
-                  InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
+                  InstrItinClass itin, RegisterClass RC, bit isComm = 0, CType type>:
   FA<op, (outs RC:$ra), (ins RC:$rb, RC:$rc),
      !strconcat(instr_asm, "\t$ra, $rb, $rc"),
-     [(set RC:$ra, (OpNode RC:$rb, RC:$rc))], itin> {
+     [(set RC:$ra, (OpNode RC:$rb, RC:$rc))], itin, type> {
   let shamt = 0;
   let isCommutable = isComm;	// e.g. add rb rc =  add rc rb
   let isReMaterializable = 1;
@@ -151,7 +151,7 @@ class ArithLogicI<bits<8> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm16),
      !strconcat(instr_asm, "\t$ra, $rb, $imm16"),
-     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu> {
+     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu, TypeIIAlu> {
   let isReMaterializable = 1;
 }
 
@@ -160,7 +160,7 @@ class MoveImm<bits<8> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm16),
      !strconcat(instr_asm, "\t$ra, $imm16"),
-     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu> {
+     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu, TypeIIAlu> {
   let rb = 0;
   let isReMaterializable = 1;
 }
@@ -171,7 +171,7 @@ class shift_rotate_imm<bits<8> op, bits<4> isRotate, string instr_asm,
                        RegisterClass RC>:
   FA<op, (outs RC:$ra), (ins RC:$rb, ImmOpnd:$shamt),
      !strconcat(instr_asm, "\t$ra, $rb, $shamt"),
-     [(set RC:$ra, (OpNode RC:$rb, PF:$shamt))], IIAlu> {
+     [(set RC:$ra, (OpNode RC:$rb, PF:$shamt))], IIAlu, TypeIIAlu> {
   let rc = isRotate;
   let shamt = shamt;
 }
@@ -184,14 +184,14 @@ class shift_rotate_imm32<bits<8> func, bits<4> isRotate, string instr_asm,
 // Load Upper Imediate
 class LoadUpper<bits<8> op, string instr_asm, RegisterClass RC, Operand Imm>:
   FL<op, (outs RC:$ra), (ins Imm:$imm16),
-     !strconcat(instr_asm, "\t$ra, $imm16"), [], IIAlu> {
+     !strconcat(instr_asm, "\t$ra, $imm16"), [], IIAlu, TypeIIAlu> {
   let rb = 0;
   let neverHasSideEffects = 1;
   let isReMaterializable = 1;
 }
 
 class FMem<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
-          InstrItinClass itin>: FL<op, outs, ins, asmstr, pattern, itin> {
+          InstrItinClass itin, CType type>: FL<op, outs, ins, asmstr, pattern, itin, type> {
   bits<20> addr;
   let Inst{19-16} = addr{19-16};
   let Inst{15-0}  = addr{15-0};
@@ -204,7 +204,7 @@ class LoadM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
             Operand MemOpnd, bit Pseudo>:
   FMem<op, (outs RC:$ra), (ins MemOpnd:$addr),
      !strconcat(instr_asm, "\t$ra, $addr"),
-     [(set RC:$ra, (OpNode addr:$addr))], IILoad> {
+     [(set RC:$ra, (OpNode addr:$addr))], IILoad, TypeIILoad> {
   let isPseudo = Pseudo;
 }
 
@@ -212,7 +212,7 @@ class StoreM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
              Operand MemOpnd, bit Pseudo>:
   FMem<op, (outs), (ins RC:$ra, MemOpnd:$addr),
      !strconcat(instr_asm, "\t$ra, $addr"),
-     [(OpNode RC:$ra, addr:$addr)], IIStore> {
+     [(OpNode RC:$ra, addr:$addr)], IIStore, TypeIIStore> {
   let isPseudo = Pseudo;
 }
 
@@ -232,7 +232,7 @@ multiclass StoreM32<bits<8> op, string instr_asm, PatFrag OpNode,
 class Mult<bits<8> op, string instr_asm, InstrItinClass itin,
            RegisterClass RC, list<Register> DefRegs>:
   FL<op, (outs), (ins RC:$ra, RC:$rb),
-     !strconcat(instr_asm, "\t$ra, $rb"), [], itin> {
+     !strconcat(instr_asm, "\t$ra, $rb"), [], itin, TypeIIImul> {
   let imm16 = 0;
   let isCommutable = 1;
   let Defs = DefRegs;
@@ -246,7 +246,7 @@ class Div<SDNode opNode, bits<8> op, string instr_asm, InstrItinClass itin,
           RegisterClass RC, list<Register> DefRegs>:
   FL<op, (outs), (ins RC:$ra, RC:$rb),
      !strconcat(instr_asm, "\t$ra, $rb"),
-     [(opNode RC:$ra, RC:$rb)], itin> {
+     [(opNode RC:$ra, RC:$rb)], itin, TypeIIIdiv> {
   let imm16 = 0;
   let Defs = DefRegs;
 }
@@ -258,7 +258,7 @@ class Div32<SDNode opNode, bits<8> op, string instr_asm, InstrItinClass itin>:
 class MoveFromLOHI<bits<8> op, string instr_asm, RegisterClass RC,
                    list<Register> UseRegs>:
   FL<op, (outs RC:$ra), (ins),
-     !strconcat(instr_asm, "\t$ra"), [], IIHiLo> {
+     !strconcat(instr_asm, "\t$ra"), [], IIHiLo, TypeIIHiLo> {
   let rb = 0;
   let imm16 = 0;
   let Uses = UseRegs;
@@ -268,7 +268,7 @@ class MoveFromLOHI<bits<8> op, string instr_asm, RegisterClass RC,
 class MoveToLOHI<bits<8> op, string instr_asm, RegisterClass RC,
                  list<Register> DefRegs>:
   FL<op, (outs), (ins RC:$ra),
-     !strconcat(instr_asm, "\t$ra"), [], IIHiLo> {
+     !strconcat(instr_asm, "\t$ra"), [], IIHiLo, TypeIIHiLo> {
   let rb = 0;
   let imm16 = 0;
   let Defs = DefRegs;
@@ -277,7 +277,7 @@ class MoveToLOHI<bits<8> op, string instr_asm, RegisterClass RC,
 
 class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
   FMem<0x09, (outs RC:$ra), (ins Mem:$addr),
-     instr_asm, [(set RC:$ra, addr:$addr)], IIAlu>;
+     instr_asm, [(set RC:$ra, addr:$addr)], IIAlu, TypeIIAlu>;
 
 //===----------------------------------------------------------------------===//
 // Instruction definition
@@ -298,15 +298,15 @@ defm ST     : StoreM32<0x01, "st",  store_a>;
 def ADDiu   : ArithLogicI<0x09, "addiu", add, simm16, immSExt16, CPURegs>;
 
 /// Arithmetic Instructions (3-Operand, R-Type)
-def ADD     : ArithLogicR<0x13, "add", add, IIAlu, CPURegs, 1>;
-def SUB     : ArithLogicR<0x14, "sub", sub, IIAlu, CPURegs, 1>;
-def MUL     : ArithLogicR<0x15, "mul", mul, IIImul, CPURegs, 1>;
+def ADD     : ArithLogicR<0x13, "add", add, IIAlu, CPURegs, 1, TypeIIAlu>;
+def SUB     : ArithLogicR<0x14, "sub", sub, IIAlu, CPURegs, 1, TypeIIAlu>;
+def MUL     : ArithLogicR<0x15, "mul", mul, IIImul, CPURegs, 1, TypeIIImul>;
 def SDIV    : Div32<Cpu0DivRem, 0x16, "div", IIIdiv>;
 def UDIV    : Div32<Cpu0DivRemU, 0x17, "divu", IIIdiv>;
-def AND     : ArithLogicR<0x18, "and", and, IIAlu, CPURegs, 1>;
-def OR      : ArithLogicR<0x19, "or", or, IIAlu, CPURegs, 1>;
-def XOR     : ArithLogicR<0x1A, "xor", xor, IIAlu, CPURegs, 1>;
-def SREM    : ArithLogicR<0xff, "srem_vb", srem, IIAlu, CPURegs, 1>;
+def AND     : ArithLogicR<0x18, "and", and, IIAlu, CPURegs, 1, TypeIIAlu>;
+def OR      : ArithLogicR<0x19, "or", or, IIAlu, CPURegs, 1, TypeIIAlu>;
+def XOR     : ArithLogicR<0x1A, "xor", xor, IIAlu, CPURegs, 1, TypeIIAlu>;
+def SREM    : ArithLogicR<0xff, "srem_vb", srem, IIAlu, CPURegs, 1, TypeIIAlu>;
 
 def MULT    : Mult32<0x50, "mult", IIImul>;
 def MULTu   : Mult32<0x51, "multu", IIImul>;
@@ -328,11 +328,11 @@ def SHR     : shift_rotate_imm32<0x1F, 0x00, "shr", srl>;
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isCodeGenOnly=1,
     isBarrier=1, hasCtrlDep=1 in
   def RET : FJ <0x2C, (outs), (ins CPURegs:$target),
-                "ret\t$target", [(Cpu0Ret CPURegs:$target)], IIBranch>;
+                "ret\t$target", [(Cpu0Ret CPURegs:$target)], IIBranch, TypeIIBranch>;
 
 /// No operation
 let addr=0 in
-  def NOP   : FJ<0, (outs), (ins), "nop", [], IIAlu>;
+  def NOP   : FJ<0, (outs), (ins), "nop", [], IIAlu, TypeIIBranch>;
   
 // FrameIndexes are legalized when they are operands from load/store
 // instructions. The same not happens for stack address copies, so an

@@ -71,7 +71,9 @@ bool DFAPacketizer::canReserveResources(const llvm::MCInstrDesc *MID) {
   DEBUG(errs() << "Dit is heel diep!\n");
   unsigned InsnClass = MID->getSchedClass();
   DEBUG(errs() << "sched class:" << InsnClass <<"\n");
-  const llvm::InstrStage *IS = InstrItins->beginStage(InsnClass);
+  const llvm::InstrStage *IS;
+  DEBUG(errs() << "eerst!\n");
+  IS = InstrItins->beginStage(InsnClass);
   DEBUG(errs() << "hier!\n");
   unsigned FuncUnits = IS->getUnits();
   DEBUG(errs() << "hier 2!\n");

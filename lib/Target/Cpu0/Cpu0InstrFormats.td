@@ -33,9 +33,22 @@ def FrmI      : Format<2>;
 def FrmJ      : Format<3>;
 def FrmOther  : Format<4>; // Instruction w/ a custom format
 
+
+class CType<bits<4> val> {
+  bits<4> Value = val;
+}
+def TypeIIAlu              : CType<0>;
+def TypeIILoad             : CType<1>;
+def TypeIIStore            : CType<2>;
+def TypeIIBranch           : CType<3>;
+def TypeIIHiLo             : CType<4>;
+def TypeIIImul             : CType<5>;
+def TypeIIIdiv             : CType<6>;
+def TypeIIPseudo           : CType<7>;
+
 // Generic Cpu0 Format
 class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
-               InstrItinClass itin, Format f>: Instruction
+               InstrItinClass itin, Format f, CType type>: Instruction
 {
   field bits<32> Inst;
   Format Form = f;
@@ -59,11 +72,11 @@ class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
   //
   // Attributes specific to Cpu0 instructions...
   //
-  Format Cpu0Type = f;
 
 
 
   // TSFlags layout should be kept in sync with Cpu0InstrInfo.h.
+  CType Cpu0Type = type;
   let TSFlags{0-3}   = Cpu0Type.Value;
   
   bits<1> isCpu0Solo = 0;
@@ -82,8 +95,8 @@ class Cpu0Inst<dag outs, dag ins, string asmstr, list<dag> pattern,
 //===----------------------------------------------------------------------===//
 
 class FA<bits<8> op, dag outs, dag ins, string asmstr,
-         list<dag> pattern, InstrItinClass itin>:
-      Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmR>
+         list<dag> pattern, InstrItinClass itin, CType type>:
+      Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmR, type>
 {
   bits<4>  ra;
   bits<4>  rb;
@@ -103,7 +116,7 @@ class FA<bits<8> op, dag outs, dag ins, string asmstr,
 //===----------------------------------------------------------------------===//
 
 class FL<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
-         InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmI>
+         InstrItinClass itin, CType type>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmI, type>
 {
   bits<4>  ra;
   bits<4>  rb;
@@ -121,7 +134,7 @@ class FL<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
 //===----------------------------------------------------------------------===//
 
 class FJ<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
-         InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmJ>
+         InstrItinClass itin, CType type>: Cpu0Inst<outs, ins, asmstr, pattern, itin, FrmJ, type>
 {
   bits<24> addr;
 
@@ -130,5 +143,37 @@ class FJ<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
   let Inst{23-0} = addr;
 }
 
+/*
+class InstIIAlu   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIAlu> {}
 
+class InstIILoad   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIILoad> {}   
 
+class InstIIStore   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIStore> {}
+
+class InstIIBranch   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIBranch> {} 
+
+class InstIIHiLo   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIHiLo> {}
+
+class InstIIImul   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIImul> {}   
+
+class InstIIIdiv   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIIdiv> {}
+
+class InstIIPseudo   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: Cpu0Inst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIPseudo> {}   
+
+*/

@@ -129,7 +129,11 @@ class AlignedStore<PatFrag Node> :
 }]>;
 
 // Load/Store PatFrags.
+def sextloadi16_a   : AlignedLoad<sextloadi16>;
+def zextloadi16_a   : AlignedLoad<zextloadi16>;
+def extloadi16_a    : AlignedLoad<extloadi16>;
 def load_a          : AlignedLoad<load>;
+def truncstorei16_a : AlignedStore<truncstorei16>;
 def store_a         : AlignedStore<store>;
 
 //===----------------------------------------------------------------------===//
@@ -140,7 +144,7 @@ def store_a         : AlignedStore<store>;
 class ArithLogicR<bits<8> op, string instr_asm, SDNode OpNode,
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0, CType type>:
   FA<op, (outs RC:$ra), (ins RC:$rb, RC:$rc),
-     !strconcat(instr_asm, "\t$ra = $rb, $rc"),
+     !strconcat(instr_asm, "\t\t$ra = $rb, $rc"),
      [(set RC:$ra, (OpNode RC:$rb, RC:$rc))], itin, type> {
   let shamt = 0;
   let isCommutable = isComm;	// e.g. add rb rc =  add rc rb
@@ -151,7 +155,7 @@ class ArithLogicR<bits<8> op, string instr_asm, SDNode OpNode,
 class ArithLogicI<bits<8> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm16),
-     !strconcat(instr_asm, "\t$ra = $rb, $imm16"),
+     !strconcat(instr_asm, "\t\t$ra = $rb, $imm16"),
      [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu, TypeIIAlu> {
   let isReMaterializable = 1;
 }
@@ -160,7 +164,7 @@ class ArithLogicI<bits<8> op, string instr_asm, SDNode OpNode,
 class MoveImm<bits<8> op, string instr_asm, SDNode OpNode,
                   Operand Od, PatLeaf imm_type, RegisterClass RC> :
   FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm),
-     !strconcat(instr_asm, "\t$ra = $imm"),
+     !strconcat(instr_asm, "\t\t$ra = $imm"),
      [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm))], IIAlu, TypeIIAlu> {
   let rb = 0;
   let isReMaterializable = 1;
@@ -171,7 +175,7 @@ class shift_rotate_imm<bits<8> op, bits<4> isRotate, string instr_asm,
                        SDNode OpNode, PatFrag PF, Operand ImmOpnd,
                        RegisterClass RC>:
   FA<op, (outs RC:$ra), (ins RC:$rb, ImmOpnd:$shamt),
-     !strconcat(instr_asm, "\t$ra, $rb, $shamt"),
+     !strconcat(instr_asm, "\t\t$ra = $rb, $shamt"),
      [(set RC:$ra, (OpNode RC:$rb, PF:$shamt))], IIAlu, TypeIIAlu> {
   let rc = isRotate;
   let shamt = shamt;
@@ -185,7 +189,7 @@ class shift_rotate_imm32<bits<8> func, bits<4> isRotate, string instr_asm,
 // Load Upper Imediate
 class LoadUpper<bits<8> op, string instr_asm, RegisterClass RC, Operand Imm>:
   FL<op, (outs RC:$ra), (ins Imm:$imm16),
-     !strconcat(instr_asm, "\t$ra, $imm16"), [], IIAlu, TypeIIAlu> {
+     !strconcat(instr_asm, "\t\t$ra = $imm16"), [], IIAlu, TypeIIAlu> {
   let rb = 0;
   let neverHasSideEffects = 1;
   let isReMaterializable = 1;
@@ -290,13 +294,20 @@ class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
 
 /// Load and Store Instructions
 ///  aligned
-defm LD     : LoadM32<0x00,  "ld",  load_a>;
-defm ST     : StoreM32<0x01, "st",  store_a>;
+defm LD     : LoadM32<0x00,  "ldw ",  load_a>;
+defm ST     : StoreM32<0x01, "stw ",  store_a>;
+defm LB     : LoadM32<0x03, "ldb ",  sextloadi8>;
+defm LBu    : LoadM32<0x04, "ldbu", zextloadi8>;
+defm SB     : StoreM32<0x05, "stb ", truncstorei8>;
+defm LH     : LoadM32<0x06, "ldh ",  sextloadi16_a>;
+defm LHu    : LoadM32<0x07, "ldhu", zextloadi16_a>;
+defm SH     : StoreM32<0x08, "sth ", truncstorei16_a>;
 
 /// Arithmetic Instructions (ALU Immediate)
 def LDI     : MoveImm<0x08, "mov", add, simm16, immSExt32, CPURegs>;
 // add defined in include/llvm/Target/TargetSelectionDAG.td, line 315 (def add).
 def ADDiu   : ArithLogicI<0x09, "add", add, simm16, immSExt16, CPURegs>;
+def XORiu   : ArithLogicR<0x1A, "xor", xor, IIAlu, CPURegs, 1, TypeIIAlu>;
 
 /// Arithmetic Instructions (3-Operand, R-Type)
 def ADD     : ArithLogicR<0x13, "add", add, IIAlu, CPURegs, 1, TypeIIAlu>;
@@ -338,7 +349,7 @@ let addr=0 in
 // instructions. The same not happens for stack address copies, so an
 // add op with mem ComplexPattern is used and the stack address copy
 // can be matched. It's similar to Sparc LEA_ADDRi
-def LEA_ADDiu : EffectiveAddress<"addiu\t$ra, $addr", CPURegs, mem_ea> {
+def LEA_ADDiu : EffectiveAddress<"add\t\t$ra = $addr", CPURegs, mem_ea> {
   let isCodeGenOnly = 1;
 }
 
@@ -365,6 +376,10 @@ def : Pat<(add CPURegs:$gp, (rvexGPRel tglobaladdr:$in)),
 
 def : Pat<(not CPURegs:$in),
           (XOR CPURegs:$in, (ADDiu R0, 1))>;
+
+def : Pat<(i32 (extloadi1  addr:$src)), (LBu addr:$src)>;
+def : Pat<(i32 (extloadi8  addr:$src)), (LBu addr:$src)>;
+def : Pat<(i32 (extloadi16_a addr:$src)), (LHu addr:$src)>;
 
 // setcc patterns
 multiclass SeteqPats<RegisterClass RC, Instruction XOROp> {

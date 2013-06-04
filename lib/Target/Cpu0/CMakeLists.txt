@@ -18,8 +18,6 @@ tablegen(LLVM Cpu0GenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM Cpu0GenCallingConv.inc -gen-callingconv)
 tablegen(LLVM Cpu0GenSubtargetInfo.inc -gen-subtarget)
 
-tablegen(LLVM Cpu0GenDFAPacketizer.inc -gen-dfa-packetizer)
-
 # Cpu0CommonTableGen must be defined
 add_public_tablegen_target(Cpu0CommonTableGen)
 
@@ -37,7 +35,6 @@ add_llvm_target(Cpu0CodeGen
   Cpu0TargetMachine.cpp
   Cpu0TargetObjectFile.cpp
   Cpu0SelectionDAGInfo.cpp
-  Cpu0VLIWPacketizer.cpp
   )
 
 # Should match with "subdirectories =  MCTargetDesc TargetInfo" in LLVMBuild.txt

@@ -32,19 +32,17 @@ def Cpu0InstrInfo : InstrInfo;
 // Cpu0 Subtarget features                                                    //
 //===----------------------------------------------------------------------===//
 
-def FeatureVLIW : SubtargetFeature<"vliw", "IsVLIWEnabled", "true",
-                                   "Enable VLIW scheduling">;
+def FeatureCpu032      : SubtargetFeature<"cpu032", "Cpu0ArchVersion", "Cpu032",
+                                "Cpu032 ISA Support">;
 
 //===----------------------------------------------------------------------===//
 // Cpu0 processors supported.
 //===----------------------------------------------------------------------===//
 
-class Proc<string Name, SchedMachineModel Model,
-           list<SubtargetFeature> Features>
-  : ProcessorModel<Name, Model, Features>;
+class Proc<string Name, list<SubtargetFeature> Features>
+ : Processor<Name, Cpu0GenericItineraries, Features>;
 
-def : Proc<"cpu0", Cpu0Model, []>;
-def : Proc<"cpu0-vliw", Cpu0Model, [FeatureVLIW]>;
+def : Proc<"cpu032", [FeatureCpu032]>;
 
 def Cpu0AsmWriter : AsmWriter {
   string AsmWriterClassName  = "InstPrinter";

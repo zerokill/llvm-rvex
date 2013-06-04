@@ -64,20 +64,23 @@ Cpu0TargetLowering(Cpu0TargetMachine &TM)
   // Set up the register classes
   addRegisterClass(MVT::i32, &Cpu0::CPURegsRegClass);
 
+  // Used by legalize types to correctly generate the setcc result.
+  // Without this, every float setcc comes with a AND/OR with the result,
+  // we don't want this, since the fpcmp result goes to a flag register,
+  // which is used implicitly by brcond and select operations.
+  AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
+
   // Cpu0 Custom Operations
   setOperationAction(ISD::GlobalAddress,      MVT::i32,   Custom);
-
-  DEBUG(errs() << "wanneer ben ik hier!\n");
-
-  //TODO: scheduling modes: None, Source, RegPressure, Hybrid, ILP, VLIW
-  bool isVLIWEnabled = static_cast<Cpu0TargetMachine*>(&TM)->getSubtargetImpl()->isVLIWEnabled();
-  setSchedulingPreference(isVLIWEnabled ? Sched::VLIW : Sched::Hybrid);
+  setOperationAction(ISD::BRCOND,             MVT::Other, Custom);
   
   setOperationAction(ISD::SDIV, MVT::i32, Expand);
-  setOperationAction(ISD::SREM, MVT::i32, Legal);
+  setOperationAction(ISD::SREM, MVT::i32, Expand);
   setOperationAction(ISD::UDIV, MVT::i32, Expand);
   setOperationAction(ISD::UREM, MVT::i32, Expand);
-  setOperationAction(ISD::MULHS, MVT::i32, Expand);
+
+  // Operations not directly supported by Cpu0.
+  setOperationAction(ISD::BR_CC,             MVT::i32, Expand);
 
   setTargetDAGCombine(ISD::SDIVREM);
   setTargetDAGCombine(ISD::UDIVREM);
@@ -146,10 +149,9 @@ SDValue Cpu0TargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI)
 SDValue Cpu0TargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const
 {
-  DEBUG(errs() << "I am here!\n");
   switch (Op.getOpcode())
   {
-    default: llvm_unreachable("Don't know how to custom lower this!");
+    case ISD::BRCOND:             return LowerBRCOND(Op, DAG);
     case ISD::GlobalAddress:      return LowerGlobalAddress(Op, DAG);
   }
   return SDValue();
@@ -162,6 +164,11 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 //===----------------------------------------------------------------------===//
 //  Misc Lower Operation implementation
 //===----------------------------------------------------------------------===//
+SDValue Cpu0TargetLowering::
+LowerBRCOND(SDValue Op, SelectionDAG &DAG) const
+{
+  return Op;
+}
 
 SDValue Cpu0TargetLowering::LowerGlobalAddress(SDValue Op,
                                                SelectionDAG &DAG) const {
@@ -212,6 +219,12 @@ SDValue Cpu0TargetLowering::LowerGlobalAddress(SDValue Op,
 
 #include "Cpu0GenCallingConv.inc"
 
+SDValue
+Cpu0TargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                              SmallVectorImpl<SDValue> &InVals) const {
+  return CLI.Chain;
+}
+
 /// LowerFormalArguments - transform physical registers into virtual registers
 /// and generate load operations for arguments places on the stack.
 SDValue
@@ -222,6 +235,58 @@ Cpu0TargetLowering::LowerFormalArguments(SDValue Chain,
                                          DebugLoc dl, SelectionDAG &DAG,
                                          SmallVectorImpl<SDValue> &InVals)
                                           const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  Cpu0FunctionInfo *Cpu0FI = MF.getInfo<Cpu0FunctionInfo>();
+
+  Cpu0FI->setVarArgsFrameIndex(0);
+
+  // Used with vargs to acumulate store chains.
+  std::vector<SDValue> OutChains;
+
+  // Assign locations to all of the incoming arguments.
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
+                 getTargetMachine(), ArgLocs, *DAG.getContext());
+                         
+  CCInfo.AnalyzeFormalArguments(Ins, CC_Cpu0);
+
+  Function::const_arg_iterator FuncArg =
+    DAG.getMachineFunction().getFunction()->arg_begin();
+  int LastFI = 0;// Cpu0FI->LastInArgFI is 0 at the entry of this function.
+
+  for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i, ++FuncArg) {
+    CCValAssign &VA = ArgLocs[i];
+    EVT ValVT = VA.getValVT();
+    ISD::ArgFlagsTy Flags = Ins[i].Flags;
+    bool IsRegLoc = VA.isRegLoc();
+
+    if (Flags.isByVal()) {
+      assert(Flags.getByValSize() &&
+             "ByVal args of size 0 should have been ignored by front-end."); 
+      continue;
+    }
+    // sanity check
+    assert(VA.isMemLoc());
+
+    // The stack pointer offset is relative to the caller stack frame.
+    LastFI = MFI->CreateFixedObject(ValVT.getSizeInBits()/8,
+                                    VA.getLocMemOffset(), true);
+
+    // Create load nodes to retrieve arguments from the stack
+    SDValue FIN = DAG.getFrameIndex(LastFI, getPointerTy());
+    InVals.push_back(DAG.getLoad(ValVT, dl, Chain, FIN,
+                                 MachinePointerInfo::getFixedStack(LastFI),
+                                 false, false, false, 0));
+  }
+  Cpu0FI->setLastInArgFI(LastFI);
+  // All stores are grouped in one node to allow the matching between
+  // the size of Ins and InVals. This only happens when on varg functions
+  if (!OutChains.empty()) {
+    OutChains.push_back(Chain);
+    Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other,
+                        &OutChains[0], OutChains.size());
+  }
   return Chain;
 }
 
@@ -238,4 +303,10 @@ Cpu0TargetLowering::LowerReturn(SDValue Chain,
 
     return DAG.getNode(Cpu0ISD::Ret, dl, MVT::Other,
                        Chain, DAG.getRegister(Cpu0::LR, MVT::i32));
+}
+
+bool
+Cpu0TargetLowering::isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const {
+  // The Mips target isn't yet aware of offsets.
+  return false;
 }

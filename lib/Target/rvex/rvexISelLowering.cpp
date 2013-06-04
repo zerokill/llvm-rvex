@@ -74,10 +74,9 @@ rvexTargetLowering(rvexTargetMachine &TM)
   setSchedulingPreference(isVLIWEnabled ? Sched::VLIW : Sched::Hybrid);
   
   setOperationAction(ISD::SDIV, MVT::i32, Expand);
-  setOperationAction(ISD::SREM, MVT::i32, Legal);
+  setOperationAction(ISD::SREM, MVT::i32, Expand);
   setOperationAction(ISD::UDIV, MVT::i32, Expand);
   setOperationAction(ISD::UREM, MVT::i32, Expand);
-  setOperationAction(ISD::MULHS, MVT::i32, Expand);
 
   setTargetDAGCombine(ISD::SDIVREM);
   setTargetDAGCombine(ISD::UDIVREM);

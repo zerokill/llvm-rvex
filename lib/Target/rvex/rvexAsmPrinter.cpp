@@ -90,14 +90,14 @@ void rvexAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       DEBUG(errs() << "inst:" << TmpInst0 << "\n");
     }
 
-    OutStreamer.EmitRawText(StringRef(";; end of bundle\n\n"));
+    OutStreamer.EmitRawText(StringRef(";;\n\n"));
 
   } else {
     //OutStreamer.EmitRawText(StringRef("\tc0"));
     MCInst TmpInst0;
     MCInstLowering.Lower(MI, TmpInst0);
     OutStreamer.EmitInstruction(TmpInst0);
-    OutStreamer.EmitRawText(StringRef(";; end of bundle\n\n"));
+    OutStreamer.EmitRawText(StringRef(";;\n\n"));
   }
 
 }

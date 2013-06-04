@@ -65,8 +65,11 @@ def CPURegs : RegisterClass<"Cpu0", [i32], 32, (add
   // Callee save
   S0, S1, S2, 
   // Reserved
-  ZERO, AT, GP, FP, SW, SP, LR, PC)>;
+  ZERO, AT, GP, FP, SP, LR, PC)>;
 
 // Hi/Lo Registers
 def HILO : RegisterClass<"Cpu0", [i32], 32, (add HI, LO)>;
+
+// Status Registers
+def SR   : RegisterClass<"Cpu0", [i32], 32, (add SW)>;
 

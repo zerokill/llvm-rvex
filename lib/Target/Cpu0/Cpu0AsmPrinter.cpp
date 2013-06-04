@@ -48,47 +48,17 @@ bool Cpu0AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
 //- EmitInstruction() must exists or will have run time error.
 void Cpu0AsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  SmallString<128> Str;
-  raw_svector_ostream OS(Str);
+  if (MI->isDebugValue()) {
+    SmallString<128> Str;
+    raw_svector_ostream OS(Str);
 
-  if(MI->isBundle()) {
-    std::vector<const MachineInstr*> BundleMIs;
-
-    unsigned int IgnoreCount = 0;
-    MachineBasicBlock::const_instr_iterator MII = MI;
-    MachineBasicBlock::const_instr_iterator MBBe = MI->getParent()->instr_end();
-    ++MII;
-    while(MII != MBBe && MII->isInsideBundle()) {
-      const MachineInstr *MInst = MII;
-      if(MInst->getOpcode() == TargetOpcode::DBG_VALUE ||
-         MInst->getOpcode() == TargetOpcode::IMPLICIT_DEF) {
-        IgnoreCount++;
-      } else {
-        BundleMIs.push_back(MInst);
-      }
-      ++MII;
-    }
-
-    unsigned Size = BundleMIs.size();
-    assert((Size+IgnoreCount) == MI->getBundleSize() && "Corrupt Bundle!");
-
-
-    for(unsigned Index = 0; Index < Size; ++Index) {
-      const MachineInstr *BMI = BundleMIs[Index];
-
-      MCInst TmpInst0;
-      MCInstLowering.Lower(BMI, TmpInst0);
-      OutStreamer.EmitInstruction(TmpInst0);
-
-    }
-
-
-  } else {
-    MCInst TmpInst0;
-    MCInstLowering.Lower(MI, TmpInst0);
-    OutStreamer.EmitInstruction(TmpInst0);
+    PrintDebugValueComment(MI, OS);
+    return;
   }
 
+  MCInst TmpInst0;
+  MCInstLowering.Lower(MI, TmpInst0);
+  OutStreamer.EmitInstruction(TmpInst0);
 }
 
 //===----------------------------------------------------------------------===//
@@ -147,7 +117,7 @@ void Cpu0AsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
   // Set CPU Bitmask.
   for (; i != e; ++i) {
     unsigned Reg = CSI[i].getReg();
-      unsigned RegNum = Cpu0II::getCpu0RegisterNumbering(Reg);
+    unsigned RegNum = getCpu0RegisterNumbering(Reg);
     CPUBitmask |= (1 << RegNum);
   }
 
@@ -288,4 +258,5 @@ void Cpu0AsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
 // Force static initialization.
 extern "C" void LLVMInitializeCpu0AsmPrinter() {
   RegisterAsmPrinter<Cpu0AsmPrinter> X(TheCpu0Target);
+  RegisterAsmPrinter<Cpu0AsmPrinter> Y(TheCpu0elTarget);
 }

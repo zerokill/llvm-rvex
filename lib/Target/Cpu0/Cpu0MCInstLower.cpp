@@ -24,10 +24,6 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/Target/Mangler.h"
 
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
-
 using namespace llvm;
 
 Cpu0MCInstLower::Cpu0MCInstLower(Cpu0AsmPrinter &asmprinter)
@@ -46,10 +42,13 @@ MCOperand Cpu0MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
 
   switch(MO.getTargetFlags()) {
   default:                   llvm_unreachable("Invalid target flag!");
+  case Cpu0II::MO_NO_FLAG:   Kind = MCSymbolRefExpr::VK_None; break;
+
 // Cpu0_GPREL is for llc -march=cpu0 -relocation-model=static -cpu0-islinux-
 //  format=false (global var in .sdata).
   case Cpu0II::MO_GPREL:     Kind = MCSymbolRefExpr::VK_Cpu0_GPREL; break;
 
+  case Cpu0II::MO_GOT_CALL:  Kind = MCSymbolRefExpr::VK_Cpu0_GOT_CALL; break;
   case Cpu0II::MO_GOT16:     Kind = MCSymbolRefExpr::VK_Cpu0_GOT16; break;
   case Cpu0II::MO_GOT:       Kind = MCSymbolRefExpr::VK_Cpu0_GOT; break;
 // ABS_HI and ABS_LO is for llc -march=cpu0 -relocation-model=static (global 
@@ -59,6 +58,10 @@ MCOperand Cpu0MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   }
 
   switch (MOTy) {
+  case MachineOperand::MO_MachineBasicBlock:
+    Symbol = MO.getMBB()->getSymbol();
+    break;
+
   case MachineOperand::MO_GlobalAddress:
     Symbol = Mang->getSymbol(MO.getGlobal());
     break;
@@ -92,7 +95,9 @@ MCOperand Cpu0MCInstLower::LowerOperand(const MachineOperand& MO,
     return MCOperand::CreateReg(MO.getReg());
   case MachineOperand::MO_Immediate:
     return MCOperand::CreateImm(MO.getImm() + offset);
+  case MachineOperand::MO_MachineBasicBlock:
   case MachineOperand::MO_GlobalAddress:
+  case MachineOperand::MO_BlockAddress:
     return LowerSymbolOperand(MO, MOTy, offset);
   case MachineOperand::MO_RegisterMask:
     break;
@@ -102,17 +107,13 @@ MCOperand Cpu0MCInstLower::LowerOperand(const MachineOperand& MO,
 }
 
 void Cpu0MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
-  DEBUG(errs() << "wanneer ben ik hier!\n");
-
   OutMI.setOpcode(MI->getOpcode());
-  
+
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-    DEBUG(errs() << "for!\n");
     const MachineOperand &MO = MI->getOperand(i);
     MCOperand MCOp = LowerOperand(MO);
 
     if (MCOp.isValid())
-      DEBUG(errs() << "if!\n");
       OutMI.addOperand(MCOp);
   }
 }

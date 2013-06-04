@@ -16,10 +16,8 @@
 
 #include "Cpu0.h"
 #include "Cpu0RegisterInfo.h"
-#include "MCTargetDesc/Cpu0BaseInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
-
 
 #define GET_INSTRINFO_HEADER
 #include "Cpu0GenInstrInfo.inc"
@@ -44,17 +42,16 @@ public:
                            bool KillSrc) const;
 
 public:
+  virtual void loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                    MachineBasicBlock::iterator MBBI,
+                                    unsigned DestReg, int FrameIndex,
+                                    const TargetRegisterClass *RC,
+                                    const TargetRegisterInfo *TRI) const;
+
   virtual MachineInstr* emitFrameIndexDebugValue(MachineFunction &MF,
                                                  int FrameIx, uint64_t Offset,
                                                  const MDNode *MDPtr,
                                                  DebugLoc DL) const;
-
-  virtual DFAPacketizer *CreateTargetScheduleState(const TargetMachine *TM,
-                                                  const ScheduleDAG *DAG) const;
-
-  virtual bool isSchedulingBoundary(const MachineInstr *MI,
-                                    const MachineBasicBlock *MBB,
-                                    const MachineFunction &MF) const;
 };
 }
 

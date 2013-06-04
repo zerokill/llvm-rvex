@@ -21,8 +21,6 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetMachine.h"
 
-#include "llvm/Support/raw_ostream.h"
-
 namespace llvm {
 class MCStreamer;
 class MachineInstr;
@@ -52,9 +50,6 @@ public:
   virtual bool runOnMachineFunction(MachineFunction &MF);
 
 //- EmitInstruction() must exists or will have run time error.
-
-  void printInstruction(const MachineInstr *MI, raw_ostream &OS);
-
   void EmitInstruction(const MachineInstr *MI);
   void printSavedRegsBitmask(raw_ostream &O);
   void printHex32(unsigned int Value, raw_ostream &O);

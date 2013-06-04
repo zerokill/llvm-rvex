@@ -77,6 +77,7 @@ namespace llvm {
     const Cpu0Subtarget *Subtarget;
 
     // Lower Operand specifics
+    SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 
 	//- must be exist without function all
@@ -87,6 +88,10 @@ namespace llvm {
                            DebugLoc dl, SelectionDAG &DAG,
                            SmallVectorImpl<SDValue> &InVals) const;
 
+    virtual SDValue
+      LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                SmallVectorImpl<SDValue> &InVals) const;
+
 	//- must be exist without function all
     virtual SDValue
       LowerReturn(SDValue Chain,
@@ -94,6 +99,8 @@ namespace llvm {
                   const SmallVectorImpl<ISD::OutputArg> &Outs,
                   const SmallVectorImpl<SDValue> &OutVals,
                   DebugLoc dl, SelectionDAG &DAG) const;
+
+    virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
   };
 }
 

@@ -70,6 +70,7 @@ copyPhysReg(MachineBasicBlock &MBB,
     MIB.addReg(SrcReg, getKillRegState(KillSrc));
 }
 
+
 DFAPacketizer *rvexInstrInfo::
 CreateTargetScheduleState(const TargetMachine *TM,
                           const ScheduleDAG *DAG) const {

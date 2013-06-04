@@ -13,15 +13,10 @@
 
 #include "Cpu0InstrInfo.h"
 #include "Cpu0TargetMachine.h"
+#include "Cpu0MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #define GET_INSTRINFO_CTOR
-//#define GET_INSTRINFO_ENUM
 #include "Cpu0GenInstrInfo.inc"
-#include "Cpu0GenDFAPacketizer.inc"
-
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -48,12 +43,18 @@ copyPhysReg(MachineBasicBlock &MBB,
       Opc = Cpu0::MFHI, SrcReg = 0;
     else if (SrcReg == Cpu0::LO)
       Opc = Cpu0::MFLO, SrcReg = 0;
+    else if (SrcReg == Cpu0::SW)	// add $ra, $ZERO, $SW
+      Opc = Cpu0::ADD, ZeroReg = Cpu0::ZERO;
   }
   else if (Cpu0::CPURegsRegClass.contains(SrcReg)) { // Copy from CPU Reg.
     if (DestReg == Cpu0::HI)
       Opc = Cpu0::MTHI, DestReg = 0;
     else if (DestReg == Cpu0::LO)
       Opc = Cpu0::MTLO, DestReg = 0;
+    // Only possibility in (DestReg==SW, SrcReg==CPU0Regs) is 
+    //  cmp $SW, $ZERO, $rc
+    else if (DestReg == Cpu0::SW)
+      Opc = Cpu0::CMP, ZeroReg = Cpu0::ZERO;
   }
 
   assert(Opc && "Cannot copy registers");
@@ -70,38 +71,32 @@ copyPhysReg(MachineBasicBlock &MBB,
     MIB.addReg(SrcReg, getKillRegState(KillSrc));
 }
 
-DFAPacketizer *Cpu0InstrInfo::
-CreateTargetScheduleState(const TargetMachine *TM,
-                          const ScheduleDAG *DAG) const {
-  DEBUG(errs() << "Voor DFA!\n");
-  const InstrItineraryData *II = TM->getInstrItineraryData();
-  DEBUG(errs() << "Na DFA!\n");
+static MachineMemOperand* GetMemOperand(MachineBasicBlock &MBB, int FI,
+                                        unsigned Flag) {
+  MachineFunction &MF = *MBB.getParent();
+  MachineFrameInfo &MFI = *MF.getFrameInfo();
+  unsigned Align = MFI.getObjectAlignment(FI);
 
-  DFAPacketizer *temp = TM->getSubtarget<Cpu0GenSubtargetInfo>().createDFAPacketizer(II);
-  DEBUG(errs() << "Na na DFA!\n");
-  return temp;
+  return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FI), Flag,
+                                 MFI.getObjectSize(FI), Align);
 }
 
-bool Cpu0InstrInfo::isSchedulingBoundary(const MachineInstr *MI,
-                                           const MachineBasicBlock *MBB,
-                                           const MachineFunction &MF) const {
-  //Implementation from HexagonInstrInfo.
+void Cpu0InstrInfo::
+loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                     unsigned DestReg, int FI,
+                     const TargetRegisterClass *RC,
+                     const TargetRegisterInfo *TRI) const
+{
+  DebugLoc DL;
+  if (I != MBB.end()) DL = I->getDebugLoc();
+  MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
+  unsigned Opc = 0;
 
-  // Debug info is never a scheduling boundary. It's necessary to be explicit
-  // due to the special treatment of IT instructions below, otherwise a
-  // dbg_value followed by an IT will result in the IT instruction being
-  // considered a scheduling hazard, which is wrong. It should be the actual
-  // instruction preceding the dbg_value instruction(s), just like it is when
-  // debug info is not present.
-  if (MI->isDebugValue())
-    return false;
- 
-  // Terminators and labels can't be scheduled around.
-  if (MI->getDesc().isTerminator() || MI->isLabel() || MI->isInlineAsm()) {
-    return true;
-  }
-
-  return false;
+  if (Cpu0::CPURegsRegClass.hasSubClassEq(RC))
+    Opc = Cpu0::LD;
+  assert(Opc && "Register class not handled!");
+  BuildMI(MBB, I, DL, get(Opc), DestReg).addFrameIndex(FI).addImm(0)
+    .addMemOperand(MMO);
 }
 
 MachineInstr*

@@ -22,7 +22,8 @@ extern "C" void LLVMInitializeCpu0Target() {
   // Register the target.
   //- Big endian Target Machine
   RegisterTargetMachine<Cpu0ebTargetMachine> X(TheCpu0Target);
-
+  //- Little endian Target Machine
+  RegisterTargetMachine<Cpu0elTargetMachine> Y(TheCpu0elTarget);
 }
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
@@ -44,9 +45,9 @@ Cpu0TargetMachine(const Target &T, StringRef TT,
     DL(isLittle ?
                ("e-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32") :
                ("E-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32")),
-    InstrInfo(*this), TLInfo(*this), TSInfo(*this),
-    FrameLowering(Subtarget),
-    InstrItins(&Subtarget.getInstItineraryData()) {
+    InstrInfo(*this),
+    FrameLowering(Subtarget), 
+    TLInfo(*this), TSInfo(*this) {
 }
 
 void Cpu0ebTargetMachine::anchor() { }
@@ -81,7 +82,6 @@ public:
     return *getCpu0TargetMachine().getSubtargetImpl();
   }
   virtual bool addInstSelector();
-  virtual bool addPreEmitPass();
 };
 } // namespace
 
@@ -93,13 +93,6 @@ TargetPassConfig *Cpu0TargetMachine::createPassConfig(PassManagerBase &PM) {
 // the ISelDag to gen Cpu0 code.
 bool Cpu0PassConfig::addInstSelector() {
   addPass(createCpu0ISelDag(getCpu0TargetMachine()));
-  return false;
-}
-
-bool Cpu0PassConfig::addPreEmitPass() {
-  if(static_cast<Cpu0TargetMachine*>(TM)->getSubtargetImpl()->isVLIWEnabled()) {
-    addPass(createCpu0VLIWPacketizer());
-  }
   return false;
 }
 

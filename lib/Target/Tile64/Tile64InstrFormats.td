@@ -30,15 +30,15 @@ class T64Type<bits<4> t> {
   bits<4> Value = t;
 }
 
-def TypePSEUDO : T64Type<8>;
-def TypeArS    : T64Type<7>;
-def TypeArL    : T64Type<6>;
-def TypeBmS    : T64Type<5>;
+def TypePSEUDO : T64Type<0>;
+def TypeArS    : T64Type<1>;
+def TypeArL    : T64Type<2>;
+def TypeBmS    : T64Type<3>;
 def TypeBmL    : T64Type<4>;
-def TypeCtr    : T64Type<3>;
-def TypeMeS    : T64Type<2>;
-def TypeMeL    : T64Type<1>;
-def TypeIll    : T64Type<0>;
+def TypeCtr    : T64Type<5>;
+def TypeMeS    : T64Type<6>;
+def TypeMeL    : T64Type<7>;
+def TypeIll    : T64Type<8>;
 
 //===----------------------------------------------------------------------===//
 //                        Instruction class declaration

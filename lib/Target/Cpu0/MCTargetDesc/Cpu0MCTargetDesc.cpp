@@ -48,7 +48,7 @@ static MCInstrInfo *createCpu0MCInstrInfo() {
 
 static MCRegisterInfo *createCpu0MCRegisterInfo(StringRef TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitCpu0MCRegisterInfo(X, Cpu0::ZERO); //TODO: is that right?
+  InitCpu0MCRegisterInfo(X, Cpu0::R0); //TODO: is that right?
   return X;
 }
 

@@ -46,7 +46,6 @@ class Proc<string Name, SchedMachineModel Model,
 def : Proc<"cpu0", Cpu0Model, []>;
 def : Proc<"cpu0-vliw", Cpu0Model, [FeatureVLIW]>;
 
-
 def Cpu0AsmWriter : AsmWriter {
   string AsmWriterClassName  = "InstPrinter";
   bit isMCAsmWriter = 1;

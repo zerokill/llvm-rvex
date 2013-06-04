@@ -69,8 +69,7 @@ Cpu0RegisterInfo::getCallPreservedMask(CallingConv::ID) const
 BitVector Cpu0RegisterInfo::
 getReservedRegs(const MachineFunction &MF) const {
   static const uint16_t ReservedCPURegs[] = {
-    Cpu0::ZERO, Cpu0::AT, Cpu0::FP,
-    Cpu0::SW, Cpu0::SP, Cpu0::LR, Cpu0::PC
+    Cpu0::R0, Cpu0::R1, Cpu0::LR, Cpu0::PC
   };
   BitVector Reserved(getNumRegs());
   typedef TargetRegisterClass::iterator RegIter;
@@ -80,7 +79,8 @@ getReservedRegs(const MachineFunction &MF) const {
 
   // If GP is dedicated as a global base register, reserve it.
   if (MF.getInfo<Cpu0FunctionInfo>()->globalBaseRegFixed()) {
-    Reserved.set(Cpu0::GP);
+    //GlobalBaseReg HACK
+    Reserved.set(Cpu0::R0);
   }
 
   return Reserved;
@@ -163,7 +163,6 @@ eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
 unsigned Cpu0RegisterInfo::
 getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
-  return TFI->hasFP(MF) ? (Cpu0::FP) :
-                          (Cpu0::SP);
+  return (Cpu0::R1);
 }
 

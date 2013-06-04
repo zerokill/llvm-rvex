@@ -34,6 +34,7 @@ void Cpu0InstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                 StringRef Annot) {
 //- printInstruction(MI, O) defined in Cpu0GenAsmWriter.inc which came from 
 //   Cpu0.td indicate.
+  O << "\tc0 ";
   printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
@@ -111,9 +112,9 @@ printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
   // If PIC target the target is loaded as the
   // pattern ld $t9,%call24($gp)
   printOperand(MI, opNum+1, O);
-  O << "(";
+  O << "[";
   printOperand(MI, opNum, O);
-  O << ")";
+  O << "]";
 }
 
 void Cpu0InstPrinter::

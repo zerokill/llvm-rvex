@@ -24,6 +24,10 @@
 #include "llvm/MC/MCInst.h"
 #include "llvm/Target/Mangler.h"
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 
 Cpu0MCInstLower::Cpu0MCInstLower(Cpu0AsmPrinter &asmprinter)
@@ -98,8 +102,9 @@ MCOperand Cpu0MCInstLower::LowerOperand(const MachineOperand& MO,
 }
 
 void Cpu0MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
-  OutMI.setOpcode(MI->getOpcode());
 
+  OutMI.setOpcode(MI->getOpcode());
+  
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
     const MachineOperand &MO = MI->getOperand(i);
     MCOperand MCOp = LowerOperand(MO);

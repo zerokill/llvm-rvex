@@ -32,8 +32,9 @@ unsigned Cpu0FunctionInfo::getGlobalBaseReg() {
   if (GlobalBaseReg)
     return GlobalBaseReg;
 
+  //Cpu0 HACK
   if (FixGlobalBaseReg) // $gp is the global base register.
-    return GlobalBaseReg = Cpu0::GP;
+    return GlobalBaseReg = Cpu0::R0;
 
   const TargetRegisterClass *RC;
   RC = (const TargetRegisterClass*)&Cpu0::CPURegsRegClass;

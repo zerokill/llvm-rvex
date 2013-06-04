@@ -1,27 +1,15 @@
-//===- rvexInstrInfo.td - Target Description for rvex Target ----------===//
-// 
+//===- rvexInstrInfo.td - Target Description for rvex Target -*- tablegen -*-=//
+//
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-// 
-//===----------------------------------------------------------------------===//
-//
-//                               rvex Backend
-//
-// Author: David Juhasz
-// E-mail: juhda@caesar.elte.hu
-// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
-//
-// The research is supported by the European Union and co-financed by the
-// European Social Fund (grant agreement no. TAMOP
-// 4.2.1./B-09/1/KMR-2010-0003).
-//
-// This file describes the rvex instructions in TableGen format.
 //
 //===----------------------------------------------------------------------===//
-
-//TODO: use zero in patterns as optimization
+//
+// This file contains the rvex implementation of the TargetInstrInfo class.
+//
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // Instruction format superclass
@@ -30,873 +18,358 @@
 include "rvexInstrFormats.td"
 
 //===----------------------------------------------------------------------===//
-// Instruction Pattern Stuff
+// rvex profiles and nodes
 //===----------------------------------------------------------------------===//
 
-//
-//  Operand type definitions
-//
+def SDT_rvexRet          : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 
-def brtarget : Operand<OtherVT>; //17-bit offset
-def jmptarget : Operand<OtherVT>; //28-bit offset
-def calltarget : Operand<iPTR>; //for tglobaladdr, texternalsym
+def SDT_rvexDivRem       : SDTypeProfile<0, 2,
+                                         [SDTCisInt<0>,
+                                          SDTCisSameAs<0, 1>]>;
 
+// Hi and Lo nodes are used to handle global addresses. Used on
+// rvexISelLowering to lower stuff like GlobalAddress, ExternalSymbol
+// static model. (nothing to do with rvex Registers Hi and Lo)
+def rvexHi    : SDNode<"rvexISD::Hi", SDTIntUnaryOp>;
+def rvexLo    : SDNode<"rvexISD::Lo", SDTIntUnaryOp>;
+def rvexGPRel : SDNode<"rvexISD::GPRel", SDTIntUnaryOp>;
 
-def gbr : RegisterOperand<T64GPRF, "printGBR">;
+// Return
+def rvexRet : SDNode<"rvexISD::Ret", SDT_rvexRet, [SDNPHasChain,
+                     SDNPOptInGlue]>;
 
-def picaddr : Operand<i32> {
-  let PrintMethod = "printBSN";
+// DivRem(u) nodes
+def rvexDivRem    : SDNode<"rvexISD::DivRem", SDT_rvexDivRem,
+                           [SDNPOutGlue]>;
+def rvexDivRemU   : SDNode<"rvexISD::DivRemU", SDT_rvexDivRem,
+                           [SDNPOutGlue]>;
+
+//===----------------------------------------------------------------------===//
+// rvex Instruction Predicate Definitions.
+//===----------------------------------------------------------------------===//
+def RelocPIC    :     Predicate<"TM.getRelocationModel() == Reloc::PIC_">,
+                      AssemblerPredicate<"Featurervex32">;
+
+//===----------------------------------------------------------------------===//
+// rvex Operand, Complex Patterns and Transformations Definitions.
+//===----------------------------------------------------------------------===//
+
+// Signed Operand
+def simm16      : Operand<i32> {
+  let DecoderMethod= "DecodeSimm16";
 }
 
-//
-// Pattern fragments for operands
-//
+def shamt       : Operand<i32>;
 
-//immediate byte
-def imm8 : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
-def imm32 : PatLeaf<(imm), [{ return isInt<32>(N->getSExtValue()); }]>;
+// Unsigned Operand
+def uimm16      : Operand<i32> {
+  let PrintMethod = "printUnsignedImm";
+}
 
+// Address operand
+def mem : Operand<i32> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops CPURegs, simm16);
+  let EncoderMethod = "getMemEncoding";
+}
 
-def imm32_pos : PatLeaf<(imm32), [{ return ((N->getSExtValue())) > 0; }]>;
-def imm32_neg : PatLeaf<(imm32), [{ return ((N->getSExtValue())) < 0; }]>;
+def mem_ea : Operand<i32> {
+  let PrintMethod = "printMemOperandEA";
+  let MIOperandInfo = (ops CPURegs, simm16);
+  let EncoderMethod = "getMemEncoding";
+}
 
-
-//immediate half-word
-def imm16 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
-
-//immediate half-word which doesn't fit a byte
-def imms16 : PatLeaf<(imm), [{
-  int num = N->getSExtValue();
-  return !isInt<8>(num) && isInt<16>(num);
+// Transformation Function - get the lower 16 bits.
+def LO16 : SDNodeXForm<imm, [{
+  return getImm(N, N->getZExtValue() & 0xFFFF);
 }]>;
 
+// Transformation Function - get the higher 16 bits.
+def HI16 : SDNodeXForm<imm, [{
+  return getImm(N, (N->getZExtValue() >> 16) & 0xFFFF);
+}]>;
 
+// Node immediate fits as 16-bit sign extended on target immediate.
+// e.g. addi, andi
+def immSExt32  : PatLeaf<(imm), [{ return isInt<32>(N->getSExtValue()); }]>;
+def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
 
-//immediate for denoting positions in registers
-def regimm : PatLeaf<(imm), [{ return isInt<5>(N->getZExtValue()); }]>;
+// Node immediate fits as 16-bit zero extended on target immediate.
+// The LO16 param means that only the lower 16 bits of the node
+// immediate are caught.
+// e.g. addiu, sltiu
+def immZExt16  : PatLeaf<(imm), [{
+  if (N->getValueType(0) == MVT::i32)
+    return (uint32_t)N->getZExtValue() == (unsigned short)N->getZExtValue();
+  else
+    return (uint64_t)N->getZExtValue() == (unsigned short)N->getZExtValue();
+}]>;
 
-//immediate for logical values
-def false : PatLeaf<(imm), [{ return N->getZExtValue() == 0; }]>;
+// shamt field must fit in 5 bits.
+def immZExt5 : ImmLeaf<i32, [{return Imm == (Imm & 0x1f);}]>;
 
-def true : PatLeaf<(imm), [{ return N->getZExtValue() > 0; }]>;
-
-
-
-
-
-
-
-//
-// rvex Profiles and Nodes
-//
-
-def SDT_T64CallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>]>;
-def SDT_T64CallSeqEnd : SDCallSeqEnd<[SDTCisVT<0, i32>,
-                                      SDTCisVT<1, i32>]>;
-
-def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_T64CallSeqStart,
-                           [SDNPHasChain, SDNPOutGlue]>;
-def callseq_end : SDNode<"ISD::CALLSEQ_END", SDT_T64CallSeqEnd,
-                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-
-def T64_fence : SDNode<"T64ISD::FENCE", SDTypeProfile<0, 0, []>,
-                       [SDNPHasChain, SDNPInGlue, SDNPOutGlue]>;
-def T64_mb : SDNode<"T64ISD::MEMBARRIER", SDTypeProfile<0, 0, []>,
-                       [SDNPHasChain, SDNPInGlue, SDNPOutGlue]>;
-
-def SDT_T64Call : SDTypeProfile<0, -1, [SDTCisVT<0, iPTR>]>;
-def SDT_T64Return : SDTypeProfile<0, 1, [SDTCisVT<0, iPTR>]>;
-
-def T64_jalr : SDNode<"T64ISD::JALR", SDT_T64Call,
-                      [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
-def T64_call : SDNode<"T64ISD::CALL", SDT_T64Call,
-                      [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
-def T64_piccall : SDNode<"T64ISD::PICCALL", SDT_T64Call,
-                        [SDNPHasChain, SDNPOutGlue, SDNPOptInGlue, SDNPVariadic]>;
-
-def T64_jrp : SDNode<"T64ISD::JRP", SDT_T64Return,
-                     [SDNPHasChain, SDNPOptInGlue]>;
-
-def SDT_T64nop : SDTypeProfile<0, 0, []>;
-
-def T64_fnop : SDNode<"T64ISD::FNOP", SDT_T64nop, [SDNPHasChain]>;
-def T64_nop : SDNode<"T64ISD::NOP", SDT_T64nop, [SDNPHasChain]>;
-
-def T64_movelo : SDNode<"T64ISD::MOVELO", SDTIntUnaryOp>;
-def T64_addhi : SDNode<"T64ISD::ADDHI", SDTIntBinOp>;
-def T64_addlo_pic : SDNode<"T64ISD::ADDLO_PIC", SDTIntBinOp>;
-def T64_addhi_pic : SDNode<"T64ISD::ADDHI_PIC", SDTIntBinOp>;
-def T64_addli_got : SDNode<"T64ISD::ADDLI_GOT", SDTIntBinOp>;
-
-def T64_bitx : SDNode<"T64ISD::BITX", SDTIntUnaryOp>;
-def T64_crc32_32 : SDNode<"T64ISD::CRC32_32", SDTIntBinOp>;
-def T64_crc32_8 : SDNode<"T64ISD::CRC32_8", SDTIntBinOp>;
-
-def SDT_T64mm : SDTypeProfile<1, 4, [SDTCisVT<0, i32>,
-                                     SDTCisVT<1, i32>, SDTCisVT<2, i32>,
-                                     SDTCisVT<3, i32>, SDTCisVT<4, i32>]>;
-def T64_mm : SDNode<"T64ISD::MM", SDT_T64mm>;
-
-def SDT_T64stfp : SDTypeProfile<0, 0, []>;
-def T64_stfp : SDNode<"T64ISD::STORE_FP", SDT_T64stfp,
-                      [SDNPHasChain, SDNPMayStore]>;
-
-def SDT_T64nsaddr : SDTypeProfile<1, 1, [SDTCisVT<0, iPTR>,
-                                         SDTCisVT<1, iPTR>]>;
-def T64_nsaddr : SDNode<"T64ISD::NEWSLOT_ADDR", SDT_T64nsaddr>;
-
-//for multiply instructions
-def SDT_T64Mul : SDTypeProfile<1, 2, [SDTCisVT<0, i32>,
-                                      SDTCisVT<1, i32>, SDTCisVT<2, i32>]>;
-def SDT_T64MulA : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
-                                       SDTCisVT<2, i32>, SDTCisVT<3, i32>]>;
-
-def T64_mulhh_ss : SDNode<"T64ISD::MULHH_SS", SDT_T64Mul>;
-def T64_mulhh_su : SDNode<"T64ISD::MULHH_SU", SDT_T64Mul>;
-def T64_mulhh_uu : SDNode<"T64ISD::MULHH_UU", SDT_T64Mul>;
-def T64_mulhha_ss : SDNode<"T64ISD::MULHHA_SS", SDT_T64MulA>;
-def T64_mulhha_su : SDNode<"T64ISD::MULHHA_SU", SDT_T64MulA>;
-def T64_mulhha_uu : SDNode<"T64ISD::MULHHA_UU", SDT_T64MulA>;
-def T64_mulhhsa_uu : SDNode<"T64ISD::MULHHSA_UU", SDT_T64MulA>;
-def T64_mulhl_ss : SDNode<"T64ISD::MULHL_SS", SDT_T64Mul>;
-def T64_mulhl_su : SDNode<"T64ISD::MULHL_SU", SDT_T64Mul>;
-def T64_mulhl_us : SDNode<"T64ISD::MULHL_US", SDT_T64Mul>;
-def T64_mulhl_uu : SDNode<"T64ISD::MULHL_UU", SDT_T64Mul>;
-def T64_mulhla_ss : SDNode<"T64ISD::MULHLA_SS", SDT_T64MulA>;
-def T64_mulhla_su : SDNode<"T64ISD::MULHLA_SU", SDT_T64MulA>;
-def T64_mulhla_us : SDNode<"T64ISD::MULHLA_US", SDT_T64MulA>;
-def T64_mulhla_uu : SDNode<"T64ISD::MULHLA_UU", SDT_T64MulA>;
-def T64_mulhlsa_uu : SDNode<"T64ISD::MULHLSA_UU", SDT_T64MulA>;
-def T64_mulll_ss : SDNode<"T64ISD::MULLL_SS", SDT_T64Mul>;
-def T64_mulll_su : SDNode<"T64ISD::MULLL_SU", SDT_T64Mul>;
-def T64_mulll_uu : SDNode<"T64ISD::MULLL_UU", SDT_T64Mul>;
-def T64_mullla_ss : SDNode<"T64ISD::MULLLA_SS", SDT_T64MulA>;
-def T64_mullla_su : SDNode<"T64ISD::MULLLA_SU", SDT_T64MulA>;
-def T64_mullla_uu : SDNode<"T64ISD::MULLLA_UU", SDT_T64MulA>;
-def T64_mulllsa_uu : SDNode<"T64ISD::MULLLSA_UU", SDT_T64MulA>;
-
-class MulInstBmST64<string OpcStr, SDNode OpNode> :
-                    InstBmST64<(outs T64GPRF:$Dest),
-                               (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                               !strconcat(OpcStr," $Dest, $SrcA, $SrcB"),
-                               [(set T64GPRF:$Dest, (OpNode T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-class MulInstBmLT64<string OpcStr, SDNode OpNode> :
-                    InstBmLT64<(outs T64GPRF:$Dest),
-                               (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                               !strconcat(OpcStr," $Dest, $SrcA, $SrcB"),
-                               [(set T64GPRF:$Dest, (OpNode T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-class MulAInstBmST64<string OpcStr, SDNode OpNode> :
-                     InstBmST64<(outs T64GPRF:$Dest),
-                                (ins T64GPRF:$acc, T64GPRF:$SrcA, T64GPRF:$SrcB),
-                                !strconcat(OpcStr, " $Dest, $SrcA, $SrcB"),
-                                [(set T64GPRF:$Dest, (OpNode T64GPRF:$acc, T64GPRF:$SrcA, T64GPRF:$SrcB))],
-                                "$acc = $Dest">;
-
-class MulAInstBmLT64<string OpcStr, SDNode OpNode> :
-                     InstBmLT64<(outs T64GPRF:$Dest),
-                                (ins T64GPRF:$acc, T64GPRF:$SrcA, T64GPRF:$SrcB),
-                                !strconcat(OpcStr, " $Dest, $SrcA, $SrcB"),
-                                [(set T64GPRF:$Dest, (OpNode T64GPRF:$acc, T64GPRF:$SrcA, T64GPRF:$SrcB))],
-                                "$acc = $Dest">;
+// rvex Address Mode! SDNode frameindex could possibily be a match
+// since load and store instructions from stack used it.
+def addr : ComplexPattern<iPTR, 2, "SelectAddr", [frameindex], [SDNPWantParent]>;
 
 //===----------------------------------------------------------------------===//
-// Pseudo Instructions
+// Pattern fragment for load/store
 //===----------------------------------------------------------------------===//
 
-let Defs = [StackPointer], Uses = [StackPointer] in {
+class AlignedLoad<PatFrag Node> :
+  PatFrag<(ops node:$ptr), (Node node:$ptr), [{
+  LoadSDNode *LD = cast<LoadSDNode>(N);
+  return LD->getMemoryVT().getSizeInBits()/8 <= LD->getAlignment();
+}]>;
 
-  def ADJCALLSTACKDOWN : PseudoT64<(outs), (ins i32imm:$amt),
-                                   "!ADJCALLSTACKDOWN $amt",
-                                   [(callseq_start timm:$amt)]>;
+class AlignedStore<PatFrag Node> :
+  PatFrag<(ops node:$val, node:$ptr), (Node node:$val, node:$ptr), [{
+  StoreSDNode *SD = cast<StoreSDNode>(N);
+  return SD->getMemoryVT().getSizeInBits()/8 <= SD->getAlignment();
+}]>;
 
-  def ADJCALLSTACKUP : PseudoT64<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-                                 "!ADJCALLSTACKUP $amt1",
-                                 [(callseq_end timm:$amt1, timm:$amt2)]>;
+// Load/Store PatFrags.
+def load_a          : AlignedLoad<load>;
+def store_a         : AlignedStore<store>;
 
+//===----------------------------------------------------------------------===//
+// Instructions specific format
+//===----------------------------------------------------------------------===//
+
+// Arithmetic and logical instructions with 3 register operands.
+class ArithLogicR<bits<8> op, string instr_asm, SDNode OpNode,
+                  InstrItinClass itin, RegisterClass RC, bit isComm = 0, CType type>:
+  FA<op, (outs RC:$ra), (ins RC:$rb, RC:$rc),
+     !strconcat(instr_asm, "\t$ra = $rb, $rc"),
+     [(set RC:$ra, (OpNode RC:$rb, RC:$rc))], itin, type> {
+  let shamt = 0;
+  let isCommutable = isComm;	// e.g. add rb rc =  add rc rb
+  let isReMaterializable = 1;
 }
 
-
-//let Uses = [FramePointer] in
-  def MOVFI : PseudoT64<(outs T64GPRF:$Dest),
-                        (ins T64GPRF:$idx),
-                        "",
-                        [(set T64GPRF:$Dest, T64GPRF:$idx)]>;
-
-
-let isCodeGenOnly = 1 in {
-
-  def MOVELO : InstArLT64<(outs T64GPRF:$Dest),
-                          (ins i32imm:$val),
-                          "addli $Dest, zero, lo16($val)",
-                          []>;
-
-  def ADDHI : InstArLT64<(outs T64GPRF:$Dest),
-                         (ins T64GPRF:$acc, i32imm:$val),
-                         "auli $Dest, $acc, ha16($val)",
-                         [],
-                         "$acc = $Dest">;
- 
-  def ADDLO_PIC : InstArLT64<(outs T64GPRF:$Dest),
-                             (ins T64GPRF:$acc, picaddr:$val),
-                             "addli $Dest, $acc, lo16($val)",
-                             []>;
-
-  def ADDHI_PIC : InstArLT64<(outs T64GPRF:$Dest),
-                             (ins T64GPRF:$acc, picaddr:$val),
-                             "auli $Dest, $acc, ha16($val)",
-                             [],
-                             "$acc = $Dest">;
-
-  def ADDLI_GOT : InstArLT64<(outs T64GPRF:$Dest),
-                             (ins T64GPRF:$acc, i32imm:$val),
-                             "addli $Dest, $acc, got($val)",
-                             [],
-                             "$acc = $Dest">;
-
+// Arithmetic and logical instructions with 2 register operands.
+class ArithLogicI<bits<8> op, string instr_asm, SDNode OpNode,
+                  Operand Od, PatLeaf imm_type, RegisterClass RC> :
+  FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm16),
+     !strconcat(instr_asm, "\t$ra = $rb, $imm16"),
+     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm16))], IIAlu, TypeIIAlu> {
+  let isReMaterializable = 1;
 }
 
-let usesCustomInserter = 1 in {
-  def SELECT : PseudoT64<(outs T64GPRF:$Dest),
-                         (ins T64GPRF:$CC, T64GPRF:$SrcA, T64GPRF:$SrcB),
-                         "",
-                         [(set (i32 T64GPRF:$Dest), (select (i32 T64GPRF:$CC), T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-  let Uses = [StackPointer] in
-    def STORE_FP : PseudoT64<(outs), (ins), "",
-                             [(T64_stfp)]>;
+// Move immediate imm16 to register ra.
+class MoveImm<bits<8> op, string instr_asm, SDNode OpNode,
+                  Operand Od, PatLeaf imm_type, RegisterClass RC> :
+  FL<op, (outs RC:$ra), (ins RC:$rb, Od:$imm),
+     !strconcat(instr_asm, "\t$ra = $imm"),
+     [(set RC:$ra, (OpNode RC:$rb, imm_type:$imm))], IIAlu, TypeIIAlu> {
+  let rb = 0;
+  let isReMaterializable = 1;
 }
 
-def NEWSLOT_ADDR : PseudoT64<(outs T64GPRF:$Dest),
-                             (ins T64GPRF:$Src),
-                             "",
-                             [(set T64GPRF:$Dest, (T64_nsaddr T64GPRF:$Src))]>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction patterns for computing addresses
-//===----------------------------------------------------------------------===//
-
-def : Pat<(T64_movelo tglobaladdr:$addr), (MOVELO tglobaladdr:$addr)>;
-def : Pat<(T64_addhi T64GPRF:$acc, tglobaladdr:$addr),
-          (ADDHI T64GPRF:$acc, tglobaladdr:$addr)>;
-def : Pat<(T64_addlo_pic T64GPRF:$acc, tglobaladdr:$addr),
-          (ADDLO_PIC T64GPRF:$acc, tglobaladdr:$addr)>;
-def : Pat<(T64_addhi_pic T64GPRF:$acc, tglobaladdr:$addr),
-          (ADDHI_PIC T64GPRF:$acc, tglobaladdr:$addr)>;
-def : Pat<(T64_addli_got T64GPRF:$acc, tglobaladdr:$addr),
-          (ADDLI_GOT T64GPRF:$acc, tglobaladdr:$addr)>;
-
-def : Pat<(T64_movelo tconstpool:$addr), (MOVELO tconstpool:$addr)>;
-def : Pat<(T64_addhi T64GPRF:$acc, tconstpool:$addr),
-          (ADDHI T64GPRF:$acc, tconstpool:$addr)>;
-def : Pat<(T64_addlo_pic T64GPRF:$acc, tconstpool:$addr),
-          (ADDLO_PIC T64GPRF:$acc, tconstpool:$addr)>;
-def : Pat<(T64_addhi_pic T64GPRF:$acc, tconstpool:$addr),
-          (ADDHI_PIC T64GPRF:$acc, tconstpool:$addr)>;
-
-def : Pat<(T64_addlo_pic T64GPRF:$acc, texternalsym:$addr),
-          (ADDLO_PIC T64GPRF:$acc, texternalsym:$addr)>;
-def : Pat<(T64_addhi_pic T64GPRF:$acc, texternalsym:$addr),
-          (ADDHI_PIC T64GPRF:$acc, texternalsym:$addr)>;
-
-//===----------------------------------------------------------------------===//
-// Instructions
-//
-// from Tilera Processor User Architecture Manual (UG101) REL. 2.2
-//===----------------------------------------------------------------------===//
-
-//
-// NOOP instructions
-//
-
-def FNOP : InstArST64<(outs), (ins),
-                      "fnop",
-                      [(T64_fnop)]>;
-
-def NOP : InstArST64<(outs), (ins),
-                     "nop",
-                     [(T64_nop)]>;
-
-//
-// Arithmetic Instructions (p.43.)
-//
-
-def ADD : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "add $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (add T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def ADDI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm32),
-                      "add $Dest = $SrcA, $Imm32",
-                      [(set (i32 T64GPRF:$Dest), (add T64GPRF:$SrcA, imm32:$Imm32))]>;                      
-
-
-//writing to the static network needs to meet additional condition beyond that pattern.
-
-
-//skip ADDS because it's only for TilePro
-
-def AULI : InstArLT64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm16),
-                      "auli $Dest, $SrcA, $Imm16",
-                      [(set (i32 T64GPRF:$Dest), (add T64GPRF:$SrcA, (shl imm16:$Imm16, (i32 16))))]>;
-
-def S1A : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "s1a $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (add (shl T64GPRF:$SrcA, (i32 1)), T64GPRF:$SrcB))]>;
-
-def S2A : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "s2a $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (add (shl T64GPRF:$SrcA, (i32 2)), T64GPRF:$SrcB))]>;
-
-def S3A : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "s3a $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (add (shl T64GPRF:$SrcA, (i32 3)), T64GPRF:$SrcB))]>;
-
-def SUB : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "sub $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (sub T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-//skip SUBS because it's only for TilePro
-
-
-//
-// Bit Manipulation Instructions (p.63.)
-//
-
-def BITX : InstBmST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA),
-                      "bitx $Dest, $SrcA",
-                      [(set (i32 T64GPRF:$Dest), (T64_bitx T64GPRF:$SrcA))]>;
-
-def BYTEX : InstBmST64<(outs T64GPRF:$Dest),
-                       (ins T64GPRF:$SrcA),
-                       "bytex $Dest, $SrcA",
-                       [(set (i32 T64GPRF:$Dest), (bswap T64GPRF:$SrcA))]>;
-
-def CLZ : InstBmST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA),
-                     "clz $Dest, $SrcA",
-                     [(set (i32 T64GPRF:$Dest), (ctlz T64GPRF:$SrcA))]>;
-
-def CRC32_32 : InstBmLT64<(outs T64GPRF:$Dest),
-                          (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                          "crc32_32 $Dest, $SrcA, $SrcB",
-                          [(set (i32 T64GPRF:$Dest), (T64_crc32_32 T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def CRC32_8 : InstBmLT64<(outs T64GPRF:$Dest),
-                         (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                         "crc32_8 $Dest, $SrcA, $SrcB",
-                         [(set (i32 T64GPRF:$Dest), (T64_crc32_8 T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def CTZ : InstBmST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA),
-                     "ctz $Dest, $SrcA",
-                     [(set (i32 T64GPRF:$Dest), (cttz T64GPRF:$SrcA))]>;
-
-//skip DWORD_ALIGN because it's only for TilePro
-
-def PCNT : InstBmST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA),
-                      "pcnt $Dest, $SrcA",
-                      [(set (i32 T64GPRF:$Dest), (ctpop (i32 T64GPRF:$SrcA)))]>;
-
-
-//
-// Compare Instructions (p.76.)
-//
-
-def SEQ : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "seq $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (seteq (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-def SEQI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                      "seqi $Dest, $SrcA, $Imm8",
-                      [(set (i32 T64GPRF:$Dest), (seteq (i32 T64GPRF:$SrcA), imm8:$Imm8))]>;
-
-def SLT : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "slt $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (setlt (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-def SLT_U : InstArST64<(outs T64GPRF:$Dest),
-                       (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                       "slt_u $Dest, $SrcA, $SrcB",
-                       [(set (i32 T64GPRF:$Dest), (setult (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-def SLTE : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                      "slte $Dest, $SrcA, $SrcB",
-                      [(set (i32 T64GPRF:$Dest), (setle (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-def SLTE_U : InstArST64<(outs T64GPRF:$Dest),
-                        (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                        "slte_u $Dest, $SrcA, $SrcB",
-                        [(set (i32 T64GPRF:$Dest), (setule (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-def SLTI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                      "slti $Dest, $SrcA, $Imm8",
-                      [(set (i32 T64GPRF:$Dest), (setlt (i32 T64GPRF:$SrcA), imm8:$Imm8))]>;
-
-def SLTI_U : InstArST64<(outs T64GPRF:$Dest),
-                        (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                        "slti_u $Dest, $SrcA, $Imm8",
-                        [(set (i32 T64GPRF:$Dest), (setult (i32 T64GPRF:$SrcA), imm8:$Imm8))]>;
-
-def SNE : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "sne $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (setne (i32 T64GPRF:$SrcA), T64GPRF:$SrcB))]>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction patterns for natively not supported comparisons
-//===----------------------------------------------------------------------===//
-
-def : Pat<(i32 (setugt (i32 T64GPRF:$SrcA), T64GPRF:$SrcB)),
-          (SLT_U T64GPRF:$SrcB, T64GPRF:$SrcA)>;
-def : Pat<(i32 (setuge (i32 T64GPRF:$SrcA), T64GPRF:$SrcB)),
-          (SLTE_U T64GPRF:$SrcB, T64GPRF:$SrcA)>;
-def : Pat<(i32 (setgt (i32 T64GPRF:$SrcA), T64GPRF:$SrcB)),
-          (SLT T64GPRF:$SrcB, T64GPRF:$SrcA)>;
-def : Pat<(i32 (setge (i32 T64GPRF:$SrcA), T64GPRF:$SrcB)),
-          (SLTE T64GPRF:$SrcB, T64GPRF:$SrcA)>;
-
-//===----------------------------------------------------------------------===//
-
-
-//
-// Control Instructions (p.95.)
-//
-
-//TODO: taken and not taken...
-let isBranch = 1, isTerminator = 1, Defs = [Zero] in {
-
-  def BBNS : InstCtrT64<(outs),
-                        (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                        "bbns $SrcA, $BrOff",
-                        [/*(brcond (i32 (seteq (urem T64GPRF:$SrcA, (i32 2)), (i32 0))), bb:$BrOff)*/]>;
-
-  def BBNST : InstCtrT64<(outs),
-                         (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                         "bbnst $SrcA, $BrOff",
-                         [(brcond (i32 (seteq (urem T64GPRF:$SrcA, (i32 2)), (i32 0))), bb:$BrOff)]>;
-
-  def BBS : InstCtrT64<(outs),
-                       (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                       "bbs $SrcA, $BrOff",
-                       [/*(brcond (i32 (seteq (urem T64GPRF:$SrcA, (i32 2)), (i32 1))), bb:$BrOff)*/]>;
-
-  def BBST : InstCtrT64<(outs),
-                        (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                        "bbst $SrcA, $BrOff",
-                        [(brcond (i32 (seteq (urem T64GPRF:$SrcA, (i32 2)), (i32 1))), bb:$BrOff)]>;
-
-  multiclass T64_BranchInst<string OpStr, PatFrag condOp> {
-
-    def _nt : InstCtrT64<(outs), (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                         !strconcat(OpStr, " $SrcA, $BrOff"),
-                         [/*(brcond (i32 (condOp T64GPRF:$SrcA, (i32 0))), bb:$BrOff)*/]>;
-
-    def _t : InstCtrT64<(outs), (ins T64GPRF:$SrcA, brtarget:$BrOff),
-                         !strconcat(OpStr, "t $SrcA, $BrOff"),
-                         [(brcond (i32 (condOp T64GPRF:$SrcA, (i32 0))), bb:$BrOff)]>;
-
-  }
-
-  defm BGEZ : T64_BranchInst<"bgez", setge>;
-  defm BGZ : T64_BranchInst<"bgz", setgt>;
-  defm BLEZ : T64_BranchInst<"blez", setle>;
-  defm BLZ : T64_BranchInst<"blz", setlt>;
-  defm BNZ : T64_BranchInst<"bnz", setne>;
-  defm BZ : T64_BranchInst<"bz", seteq>;
-
+// Shifts
+class shift_rotate_imm<bits<8> op, bits<4> isRotate, string instr_asm,
+                       SDNode OpNode, PatFrag PF, Operand ImmOpnd,
+                       RegisterClass RC>:
+  FA<op, (outs RC:$ra), (ins RC:$rb, ImmOpnd:$shamt),
+     !strconcat(instr_asm, "\t$ra, $rb, $shamt"),
+     [(set RC:$ra, (OpNode RC:$rb, PF:$shamt))], IIAlu, TypeIIAlu> {
+  let rc = isRotate;
+  let shamt = shamt;
 }
 
-let isBranch = 1, isTerminator = 1, Defs = [LinkRegister] in {
+// 32-bit shift instructions.
+class shift_rotate_imm32<bits<8> func, bits<4> isRotate, string instr_asm,
+                         SDNode OpNode>:
+  shift_rotate_imm<func, isRotate, instr_asm, OpNode, immZExt5, shamt, CPURegs>;
 
-  //JALB nad JALF are for calling backward and forward, use pseudo-instruction
-  //JAL instead of them
-  //skip JALB
-  //skip JALF
+// Load Upper Imediate
+class LoadUpper<bits<8> op, string instr_asm, RegisterClass RC, Operand Imm>:
+  FL<op, (outs RC:$ra), (ins Imm:$imm16),
+     !strconcat(instr_asm, "\t$ra, $imm16"), [], IIAlu, TypeIIAlu> {
+  let rb = 0;
+  let neverHasSideEffects = 1;
+  let isReMaterializable = 1;
+}
 
-  let isCall = 1,
-      //All calls clobber the caller saved registers...
-      Defs = [R2,  R3,  R4,  R5,  R6,  R7,  R8,  R9,
-              R10, R11, R12, R13, R14, R15, R16, R17, R18, R19,
-              R20, R21, R22, R23, R24, R25, R26, R27, R28, R29] in {
-    //These instructions directly modify lr, but it's handled by the caller, so
-    //lr is not mentioned in the list.
+class FMem<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+          InstrItinClass itin, CType type>: FL<op, outs, ins, asmstr, pattern, itin, type> {
+  bits<20> addr;
+  let Inst{19-16} = addr{19-16};
+  let Inst{15-0}  = addr{15-0};
+  let DecoderMethod = "DecodeMem";
+}
 
-    //Pseudo instruction for JALB and JALF
-    def JAL : InstCtrT64<(outs),
-                         (ins calltarget:$dst, variable_ops),
-                         "jal $dst",
-                         []>;
+// Memory Load/Store
+let canFoldAsLoad = 1 in
+class LoadM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
+            Operand MemOpnd, bit Pseudo>:
+  FMem<op, (outs RC:$ra), (ins MemOpnd:$addr),
+     !strconcat(instr_asm, "\t$ra = $addr"),
+     [(set RC:$ra, (OpNode addr:$addr))], IILoad, TypeIILoad> {
+  let isPseudo = Pseudo;
+}
 
-    //pseudo instruction for PIC relocation
-    def PICJAL : InstCtrT64<(outs),
-                            (ins calltarget:$dst, variable_ops),
-                            "jal plt($dst)",
-                            []>;
+class StoreM<bits<8> op, string instr_asm, PatFrag OpNode, RegisterClass RC,
+             Operand MemOpnd, bit Pseudo>:
+  FMem<op, (outs), (ins RC:$ra, MemOpnd:$addr),
+     !strconcat(instr_asm, "\t$addr = $ra"),
+     [(OpNode RC:$ra, addr:$addr)], IIStore, TypeIIStore> {
+  let isPseudo = Pseudo;
+}
 
-    def JALR : InstCtrT64<(outs),
-                          (ins T64GPRF:$SrcA, variable_ops),
-                          "jalr $SrcA",
-                          [(T64_jalr T64GPRF:$SrcA)]>;
+// 32-bit load.
+multiclass LoadM32<bits<8> op, string instr_asm, PatFrag OpNode,
+                   bit Pseudo = 0> {
+  def #NAME# : LoadM<op, instr_asm, OpNode, CPURegs, mem, Pseudo>;
+}
 
+// 32-bit store.
+multiclass StoreM32<bits<8> op, string instr_asm, PatFrag OpNode,
+                    bit Pseudo = 0> {
+  def #NAME# : StoreM<op, instr_asm, OpNode, CPURegs, mem, Pseudo>;
+}
 
-  }
+// Mul, Div
+class Mult<bits<8> op, string instr_asm, InstrItinClass itin,
+           RegisterClass RC, list<Register> DefRegs>:
+  FL<op, (outs), (ins RC:$ra, RC:$rb),
+     !strconcat(instr_asm, "\t$ra, $rb"), [], itin, TypeIIImul> {
+  let imm16 = 0;
+  let isCommutable = 1;
+  let Defs = DefRegs;
+  let neverHasSideEffects = 1;
+}
 
-  //skip JALRP
+class Mult32<bits<8> op, string instr_asm, InstrItinClass itin>:
+  Mult<op, instr_asm, itin, CPURegs, [HI, LO]>;
 
+class Div<SDNode opNode, bits<8> op, string instr_asm, InstrItinClass itin,
+          RegisterClass RC, list<Register> DefRegs>:
+  FL<op, (outs), (ins RC:$ra, RC:$rb),
+     !strconcat(instr_asm, "\t$ra, $rb"),
+     [(opNode RC:$ra, RC:$rb)], itin, TypeIIIdiv> {
+  let imm16 = 0;
+  let Defs = DefRegs;
+}
+
+class Div32<SDNode opNode, bits<8> op, string instr_asm, InstrItinClass itin>:
+  Div<opNode, op, instr_asm, itin, CPURegs, [HI, LO]>;
+
+// Move from Hi/Lo
+class MoveFromLOHI<bits<8> op, string instr_asm, RegisterClass RC,
+                   list<Register> UseRegs>:
+  FL<op, (outs RC:$ra), (ins),
+     !strconcat(instr_asm, "\t$ra"), [], IIHiLo, TypeIIHiLo> {
+  let rb = 0;
+  let imm16 = 0;
+  let Uses = UseRegs;
+  let neverHasSideEffects = 1;
+}
+
+class MoveToLOHI<bits<8> op, string instr_asm, RegisterClass RC,
+                 list<Register> DefRegs>:
+  FL<op, (outs), (ins RC:$ra),
+     !strconcat(instr_asm, "\t$ra"), [], IIHiLo, TypeIIHiLo> {
+  let rb = 0;
+  let imm16 = 0;
+  let Defs = DefRegs;
+  let neverHasSideEffects = 1;
+}
+
+class EffectiveAddress<string instr_asm, RegisterClass RC, Operand Mem> :
+  FMem<0x09, (outs RC:$ra), (ins Mem:$addr),
+     instr_asm, [(set RC:$ra, addr:$addr)], IIAlu, TypeIIAlu>;
+
+//===----------------------------------------------------------------------===//
+// Instruction definition
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// rvexI Instructions
+//===----------------------------------------------------------------------===//
+
+/// Load and Store Instructions
+///  aligned
+defm LD     : LoadM32<0x00,  "ld",  load_a>;
+defm ST     : StoreM32<0x01, "st",  store_a>;
+
+/// Arithmetic Instructions (ALU Immediate)
+def LDI     : MoveImm<0x08, "mov", add, simm16, immSExt32, CPURegs>;
+// add defined in include/llvm/Target/TargetSelectionDAG.td, line 315 (def add).
+def ADDiu   : ArithLogicI<0x09, "add", add, simm16, immSExt16, CPURegs>;
+
+/// Arithmetic Instructions (3-Operand, R-Type)
+def ADD     : ArithLogicR<0x13, "add", add, IIAlu, CPURegs, 1, TypeIIAlu>;
+def SUB     : ArithLogicR<0x14, "sub", sub, IIAlu, CPURegs, 1, TypeIIAlu>;
+def MUL     : ArithLogicR<0x15, "mul", mul, IIImul, CPURegs, 1, TypeIIImul>;
+def SDIV    : Div32<rvexDivRem, 0x16, "div", IIIdiv>;
+def UDIV    : Div32<rvexDivRemU, 0x17, "divu", IIIdiv>;
+def AND     : ArithLogicR<0x18, "and", and, IIAlu, CPURegs, 1, TypeIIAlu>;
+def OR      : ArithLogicR<0x19, "or", or, IIAlu, CPURegs, 1, TypeIIAlu>;
+def XOR     : ArithLogicR<0x1A, "xor", xor, IIAlu, CPURegs, 1, TypeIIAlu>;
+
+def MULT    : Mult32<0x50, "mult", IIImul>;
+def MULTu   : Mult32<0x51, "multu", IIImul>;
+
+def MFHI : MoveFromLOHI<0x40, "mfhi", CPURegs, [HI]>;
+def MFLO : MoveFromLOHI<0x41, "mflo", CPURegs, [LO]>;
+def MTHI : MoveToLOHI<0x42, "mthi", CPURegs, [HI]>;
+def MTLO : MoveToLOHI<0x43, "mtlo", CPURegs, [LO]>;
+
+/// Shift Instructions
+// work, sra for ashr llvm IR instruction
+def SRA     : shift_rotate_imm32<0x1B, 0x00, "sra", sra>;
+def ROL     : shift_rotate_imm32<0x1C, 0x01, "rol", rotl>;
+def ROR     : shift_rotate_imm32<0x1D, 0x01, "ror", rotr>;
+def SHL     : shift_rotate_imm32<0x1E, 0x00, "shl", shl>;
+// work, srl for lshr llvm IR instruction
+def SHR     : shift_rotate_imm32<0x1F, 0x00, "shr", srl>;
+
+let isReturn=1, isTerminator=1, hasDelaySlot=1, isCodeGenOnly=1,
+    isBarrier=1, hasCtrlDep=1 in
+  def RET : FJ <0x2C, (outs), (ins CPURegs:$target),
+                "ret\t$target", [(rvexRet CPURegs:$target)], IIBranch, TypeIIBranch>;
+
+/// No operation
+let addr=0 in
+  def NOP   : FJ<0, (outs), (ins), "nop", [], IIAlu, TypeIIBranch>;
+  
+// FrameIndexes are legalized when they are operands from load/store
+// instructions. The same not happens for stack address copies, so an
+// add op with mem ComplexPattern is used and the stack address copy
+// can be matched. It's similar to Sparc LEA_ADDRi
+def LEA_ADDiu : EffectiveAddress<"addiu\t$ra, $addr", CPURegs, mem_ea> {
+  let isCodeGenOnly = 1;
 }
 
 //===----------------------------------------------------------------------===//
-// Non-instruction patterns for call pseudo instruction
+//  Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
 
-def : Pat<(T64_call tglobaladdr:$dst), (JAL tglobaladdr:$dst)>;
-def : Pat<(T64_call texternalsym:$dst), (JAL texternalsym:$dst)>;
-def : Pat<(T64_piccall tglobaladdr:$dst), (PICJAL tglobaladdr:$dst)>;
-def : Pat<(T64_piccall texternalsym:$dst), (PICJAL texternalsym:$dst)>;
+// Small immediates
+def : Pat<(i32 imm:$in),
+          (LDI R0, imm:$in)>;
 
+// hi/lo relocs
+def : Pat<(rvexHi tglobaladdr:$in), (SHL (ADDiu R0, tglobaladdr:$in), 16)>;
+// Expect rvex add LUi support, like Mips
+//def : Pat<(rvexHi tglobaladdr:$in), (LUi tglobaladdr:$in)>;
+def : Pat<(rvexLo tglobaladdr:$in), (ADDiu R0, tglobaladdr:$in)>;
 
-//===----------------------------------------------------------------------===//
+def : Pat<(add CPURegs:$hi, (rvexLo tglobaladdr:$lo)),
+          (ADDiu CPURegs:$hi, tglobaladdr:$lo)>;
 
-let isBranch = 1, isTerminator = 1 in {
+// gp_rel relocs
+def : Pat<(add CPURegs:$gp, (rvexGPRel tglobaladdr:$in)),
+          (ADDiu CPURegs:$gp, tglobaladdr:$in)>;
 
-  //JB and JF are for jumping backward and forward, use pseudo-instruction J
-  //instead of them
-  //skip JB
-  //skip JF
+def : Pat<(not CPURegs:$in),
+          (XOR CPURegs:$in, (ADDiu R0, 1))>;
 
-  //Pseudo instruction for JB and JF
-  def J : InstCtrT64<(outs),
-                     (ins jmptarget:$JOff),
-                     "j $JOff",
-                     [(br bb:$JOff)]>;
-
-  def JR : InstCtrT64<(outs),
-                      (ins T64GPRF:$SrcA),
-                      "jr $SrcA",
-                      [(brind T64GPRF:$SrcA)]>;
-
-  //Predict used on return
-  let isReturn = 1 in
-    def JRP : InstCtrT64<(outs),
-                         (ins T64GPRF:$SrcA),
-                         "jrp $SrcA",
-                         [(T64_jrp T64GPRF:$SrcA)]>;
-
+// setcc patterns
+multiclass SeteqPats<RegisterClass RC, Instruction XOROp> {
+  def : Pat<(seteq RC:$lhs, RC:$rhs),
+            (XOROp (XOROp RC:$lhs, RC:$rhs), (ADDiu R0, 1))>;
 }
 
-//pseudo instruction for store a base pointer with lnk
-def GBR : PseudoT64<(outs gbr:$reg), (ins), "$reg", []>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction patterns for branching
-//===----------------------------------------------------------------------===//
-
-def : Pat<(brcond (i32 false), (bb)), (FNOP)>;
-def : Pat<(brcond (i32 true), bb:$dst), (J bb:$dst)>;
-def : Pat<(brcond (i32 T64GPRF:$Src), bb:$dst), (BNZ_t T64GPRF:$Src, bb:$dst)>;
-
-//
-// Logical Instructions (p.21.)
-//
-
-def AND : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "and $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (and T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def ANDI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                      "andi $Dest = $SrcA, $Imm8",
-                      [(set (i32 T64GPRF:$Dest), (and T64GPRF:$SrcA, imm8:$Imm8))]>;
-
-def MM : InstArLT64<(outs T64GPRF:$Dest),
-                    (ins T64GPRF:$SrcA, T64GPRF:$SrcB, i32imm:$MMStart, i32imm:$MMEnd),
-                    "mm $Dest = $SrcA, $SrcB, $MMStart, $MMEnd",
-                    [(set T64GPRF:$Dest, (T64_mm T64GPRF:$SrcA, T64GPRF:$SrcB, (i32 regimm:$MMStart), (i32 regimm:$MMEnd)))]>;
-
-def MNZ : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "mnz $Dest = $SrcA, $SrcB",
-                     [(set T64GPRF:$Dest, (selectcc T64GPRF:$SrcA, (i32 0), T64GPRF:$SrcB, (i32 0), SETNE))]>;
-
-def MVNZ : InstBmST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, T64GPRF:$SrcB, T64GPRF:$src),
-                      "mvnz $Dest = $SrcA, $SrcB",
-                      [(set (i32 T64GPRF:$Dest), (selectcc T64GPRF:$SrcA, (i32 0), T64GPRF:$SrcB, T64GPRF:$src, SETNE))],
-                      "$src = $Dest">;
-
-def MVZ : InstBmST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB, T64GPRF:$src),
-                     "mvz $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (selectcc T64GPRF:$SrcA, (i32 0), T64GPRF:$SrcB, T64GPRF:$src, SETEQ))],
-                     "$src = $Dest">;
-
-def MZ : InstArST64<(outs T64GPRF:$Dest),
-                    (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                    "mz $Dest = $SrcA, $SrcB",
-                    [(set T64GPRF:$Dest, (selectcc T64GPRF:$SrcA, (i32 0), T64GPRF:$SrcB, (i32 0), SETEQ))]>;
-
-def NOR : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "nor $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (not (or T64GPRF:$SrcA, T64GPRF:$SrcB)))]>;
-
-def OR : InstArST64<(outs T64GPRF:$Dest),
-                    (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                    "or $Dest = $SrcA, $SrcB",
-                    [(set (i32 T64GPRF:$Dest), (or T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def ORI : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                     "ori $Dest = $SrcA, $Imm8",
-                     [(set (i32 T64GPRF:$Dest), (or T64GPRF:$SrcA, imm8:$Imm8))]>;
-
-def RL : InstArST64<(outs T64GPRF:$Dest),
-                    (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                    "rl $Dest = $SrcA, $SrcB",
-                    [(set (i32 T64GPRF:$Dest), (rotl T64GPRF:$SrcA, (i32 T64GPRF:$SrcB)))]>;
-
-def RLI : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, i32imm:$ShAmt),
-                     "rli $Dest = $SrcA, $ShAmt",
-                     [(set (i32 T64GPRF:$Dest), (rotl T64GPRF:$SrcA, (i32 regimm:$ShAmt)))]>;
-
-def SHL : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "shl $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (shl T64GPRF:$SrcA, (i32 T64GPRF:$SrcB)))]>;
-
-def SHLI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$ShAmt),
-                      "shli $Dest = $SrcA, $ShAmt",
-                      [(set (i32 T64GPRF:$Dest), (shl T64GPRF:$SrcA, (i32 regimm:$ShAmt)))]>;
-
-def SHR : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "shr $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (srl T64GPRF:$SrcA, (i32 T64GPRF:$SrcB)))]>;
-
-def SHRI : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$ShAmt),
-                      "shri $Dest = $SrcA, $ShAmt",
-                      [(set (i32 T64GPRF:$Dest), (srl T64GPRF:$SrcA, (i32 regimm:$ShAmt)))]>;
-
-def SRA : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "sra $Dest = $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (sra T64GPRF:$SrcA, (i32 T64GPRF:$SrcB)))]>;
-
-def SRAI : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, i32imm:$ShAmt),
-                     "srai $Dest = $SrcA, $ShAmt",
-                     [(set (i32 T64GPRF:$Dest), (sra T64GPRF:$SrcA, (i32 regimm:$ShAmt)))]>;
-
-//skip TBLIDXB0
-//skip TBLIDXB1
-//skip TBLIDXB2
-//skip TBLIDXB3
-
-def XOR : InstArST64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$SrcA, T64GPRF:$SrcB),
-                     "xor $Dest, $SrcA, $SrcB",
-                     [(set (i32 T64GPRF:$Dest), (xor T64GPRF:$SrcA, T64GPRF:$SrcB))]>;
-
-def XORI : InstArLT64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$SrcA, i32imm:$Imm8),
-                      "xori $Dest, $SrcA, $Imm8",
-                      [(set (i32 T64GPRF:$Dest), (xor T64GPRF:$SrcA, imm8:$Imm8))]>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction pattern for special logical operations to masked merge.
-//===----------------------------------------------------------------------===//
-
-def : Pat<(and T64GPRF:$Src, (i32 255)), (MM T64GPRF:$Src, (i32 Zero), (i32 0), (i32 7))>;
-def : Pat<(and T64GPRF:$Src, (i32 511)), (MM T64GPRF:$Src, (i32 Zero), (i32 0), (i32 8))>;
-def : Pat<(and T64GPRF:$Src, (i32 1023)), (MM T64GPRF:$Src, (i32 Zero), (i32 0), (i32 9))>;
-def : Pat<(and T64GPRF:$Src, (i32 2047)), (MM T64GPRF:$Src, (i32 Zero), (i32 0), (i32 10))>;
-
-//TODO: cont
-
-//skip SWADD because it's only for TilePro
-
-def TNS : InstMeLT64<(outs T64GPRF:$Dest),
-                     (ins T64GPRF:$Src),
-                     "tns $Dest, $Src",
-                     [(set T64GPRF:$Dest, (atomic_swap_32 T64GPRF:$Src, (i32 1)))]>;
-
-//
-// Memory Maintenance Instructions (p.183.)
-//
-
-//skip DTLBPR
-
-//skip FINV
-//skip FLUSH
-//skip INV
-
-let hasSideEffects = 1 in
-  def MF : InstMeLT64<(outs), (ins),
-                      "mf",
-                      [(T64_fence)]>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction pattern for fence pseudo instruction
-//===----------------------------------------------------------------------===//
-
-def : Pat<(atomic_fence (imm), (imm)), (MF)>;
-
-//===----------------------------------------------------------------------===//
-
-//skip WH64 because it's only for TilePro
-
-
-//
-// Multiply Instructions (p.190.)
-//
-
-def MULHH_SS : MulInstBmST64<"mulhh_ss", T64_mulhh_ss>;
-def MULHH_SU : MulInstBmST64<"mulhh_su", T64_mulhh_su>;
-def MULHH_UU : MulInstBmST64<"mulhh_uu", T64_mulhh_uu>;
-def MULHHA_SS : MulAInstBmST64<"mulhha_ss", T64_mulhha_ss>;
-def MULHHA_SU : MulAInstBmLT64<"mulhha_su", T64_mulhha_su>;
-def MULHHA_UU : MulAInstBmST64<"mulhha_uu", T64_mulhha_uu>;
-def MULHHSA_UU : MulAInstBmLT64<"mulhhsa_uu", T64_mulhhsa_uu>;
-def MULHL_SS : MulInstBmLT64<"mulhl_ss", T64_mulhl_ss>;
-def MULHL_SU : MulInstBmLT64<"mulhl_su", T64_mulhl_su>;
-def MULHL_US : MulInstBmLT64<"mulhl_us", T64_mulhl_us>;
-def MULHL_UU : MulInstBmLT64<"mulhl_uu", T64_mulhl_uu>;
-def MULHLA_SS : MulAInstBmLT64<"mulhla_ss", T64_mulhla_ss>;
-def MULHLA_SU : MulAInstBmLT64<"mulhla_su", T64_mulhla_su>;
-def MULHLA_US : MulAInstBmLT64<"mulhla_us", T64_mulhla_us>;
-def MULHLA_UU : MulAInstBmLT64<"mulhla_uu", T64_mulhla_uu>;
-def MULHLSA_UU : MulAInstBmST64<"mulhlsa_uu", T64_mulhlsa_uu>;
-def MULLL_SS : MulInstBmST64<"mulll_ss", T64_mulll_ss>;
-def MULLL_SU : MulInstBmLT64<"mulll_su", T64_mulll_su>;
-def MULLL_UU : MulInstBmST64<"mulll_uu", T64_mulll_uu>;
-def MULLLA_SS : MulAInstBmST64<"mullla_ss", T64_mullla_ss>;
-def MULLLA_SU : MulAInstBmLT64<"mullla_su", T64_mullla_su>;
-def MULLLA_UU : MulAInstBmST64<"mullla_uu", T64_mullla_uu>;
-def MULLLSA_UU : MulAInstBmLT64<"mulllsa_uu", T64_mulllsa_uu>;
-
-
-//
-// NOP Instructions (p.214.)
-//
-
-//See the beginning of instrucion definitions.
-
-//
-// SIMD Instructions (p.218.)
-//
-
-//TODO!!!
-//include "rvexInstrInfoSIMD.td"
-
-//
-// System Instructions (p.347.)
-//
-let isBarrier = 1, hasSideEffects = 1 in
-  def DRAIN : InstMeLT64<(outs), (ins),
-                         "drain",
-                         [(T64_mb)]>;
-
-//===----------------------------------------------------------------------===//
-// Non-instruction pattern for memory barrier pseudo instruction
-//===----------------------------------------------------------------------===//
-
-def : Pat<(membarrier (i32 imm), (i32 imm), (i32 imm), (i32 imm), (i32 imm)),
-          (DRAIN)>;
-
-//===----------------------------------------------------------------------===//
-
-//skip ICOH
-//skip ILL
-//skip IRET
-//skip MFSPR
-//skip MTSPR
-//skip NAP
-//skip SWINT0
-//skip SWINT1
-//skip SWINT2
-//skip SWINT3
-
-
-//
-// Pseudo Instructions (p.359.)
-//
-
-//Pseudo instruction for moving data between registers. Utilized by function
-//rvexInstrInfo::copyPhysReg()
-def MOVE : InstArST64<(outs T64GPRF:$Dest),
-                      (ins T64GPRF:$Src),
-                      "or $Dest = $Src, 0",
-                      [(set (i32 T64GPRF:$Dest), (i32 T64GPRF:$Src))]>;
-
-let isMoveImm = 1 in {
-
-  def MOVEI_pos : InstArST64<(outs T64GPRF:$Dest),
-                         (ins i32imm:$Imm32),
-                         "mov $Dest = $Imm32",
-                         [(set (i32 T64GPRF:$Dest), imm32_pos:$Imm32)]>;
-
-  def MOVEI_neg : InstArST64<(outs T64GPRF:$Dest),
-                         (ins i32imm:$Imm32),
-                         "mov $Dest = ($Imm32)",
-                         [(set (i32 T64GPRF:$Dest), imm32_neg:$Imm32)]>;
-
-}
-
-def PREFETCH : InstMeST64<(outs),
-                          (ins T64GPRF:$Src),
-                          "lb_u zero, $Src",
-                          [(prefetch T64GPRF:$Src, (i32 imm), (i32 imm), (i32 imm))]>;
-
-//TODO: is there need here for the assembler's other pseudo instructions?
-
-//===----------------------------------------------------------------------===//
-// Non-instruction patterns for utilizing zero register.
-//===----------------------------------------------------------------------===//
-
-def : Pat<(add T64GPRF:$SrcA, (i32 0)), (ADD T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(and T64GPRF:$SrcA, (i32 0)), (AND T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(or T64GPRF:$SrcA, (i32 0)), (OR T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(xor T64GPRF:$SrcA, (i32 0)), (XOR T64GPRF:$SrcA, (i32 Zero))>;
-
-def : Pat<(i32 (seteq T64GPRF:$SrcA, (i32 0))), (SEQ T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (seteq (i32 0), T64GPRF:$SrcA)), (SEQ (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setne T64GPRF:$SrcA, (i32 0))), (SNE T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setne (i32 0), T64GPRF:$SrcA)), (SNE (i32 Zero), T64GPRF:$SrcA)>;
-
-def : Pat<(i32 (setlt T64GPRF:$SrcA, (i32 0))), (SLT T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setlt (i32 0), T64GPRF:$SrcA)), (SLT (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setult T64GPRF:$SrcA, (i32 0))), (SLT_U T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setult (i32 0), T64GPRF:$SrcA)), (SLT_U (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setle T64GPRF:$SrcA, (i32 0))), (SLTE T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setle (i32 0), T64GPRF:$SrcA)), (SLTE (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setule T64GPRF:$SrcA, (i32 0))), (SLTE_U T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setule (i32 0), T64GPRF:$SrcA)), (SLTE_U (i32 Zero), T64GPRF:$SrcA)>;
-
-def : Pat<(i32 (setgt T64GPRF:$SrcA, (i32 0))), (SLT (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setgt (i32 0), T64GPRF:$SrcA)), (SLT T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setugt T64GPRF:$SrcA, (i32 0))), (SLT_U (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setugt (i32 0), T64GPRF:$SrcA)), (SLT_U T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setge T64GPRF:$SrcA, (i32 0))), (SLTE (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setge (i32 0), T64GPRF:$SrcA)), (SLTE T64GPRF:$SrcA, (i32 Zero))>;
-def : Pat<(i32 (setuge T64GPRF:$SrcA, (i32 0))), (SLTE_U (i32 Zero), T64GPRF:$SrcA)>;
-def : Pat<(i32 (setuge (i32 0), T64GPRF:$SrcA)), (SLTE_U T64GPRF:$SrcA, (i32 Zero))>;
-
+defm : SeteqPats<CPURegs, XOR>;

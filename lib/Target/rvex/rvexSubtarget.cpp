@@ -1,4 +1,4 @@
-//===- rvexSubtarget.cpp - rvex Subtarget Information -----------------===//
+//===-- rvexSubtarget.cpp - rvex Subtarget Information --------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,17 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//                               rvex Backend
-//
-// Author: David Juhasz
-// E-mail: juhda@caesar.elte.hu
-// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
-//
-// The research is supported by the European Union and co-financed by the
-// European Social Fund (grant agreement no. TAMOP
-// 4.2.1./B-09/1/KMR-2010-0003).
-//
-//
 // This file implements the rvex specific subclass of TargetSubtargetInfo.
 //
 //===----------------------------------------------------------------------===//
@@ -25,6 +14,7 @@
 #include "rvexSubtarget.h"
 #include "rvex.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/CommandLine.h"
 
 #define GET_SUBTARGETINFO_TARGET_DESC
 #define GET_SUBTARGETINFO_CTOR
@@ -32,13 +22,29 @@
 
 using namespace llvm;
 
-rvexSubtarget::rvexSubtarget(StringRef TT, StringRef CPU, StringRef FS)
-    : rvexGenSubtargetInfo(TT, CPU, FS), CPUString(CPU.str()) {
+static cl::opt<bool>
+IsLinuxOpt("rvex-islinux-format", cl::Hidden, cl::init(true),
+                 cl::desc("Always use linux format."));
+
+void rvexSubtarget::anchor() { }
+
+rvexSubtarget::rvexSubtarget(const std::string &TT, const std::string &CPU,
+                             const std::string &FS, bool little) :
+  rvexGenSubtargetInfo(TT, CPU, FS),
+  rvexABI(UnknownABI), IsLittle(little), IsLinux(IsLinuxOpt)
+{
+  std::string CPUName = CPU;
+  if (CPUName.empty())
+    CPUName = "rvex32";
 
   // Parse features string.
-  ParseSubtargetFeatures(CPU, FS);
+  ParseSubtargetFeatures(CPUName, FS);
 
-  // Initialize scheduling itinerary for the specified CPU
-  InstrItins = getInstrItineraryForCPU(CPUString);
+  // Initialize scheduling itinerary for the specified CPU.
+  InstrItins = getInstrItineraryForCPU(CPUName);
+
+  // Set rvexABI if it hasn't been set yet.
+  if (rvexABI == UnknownABI)
+    rvexABI = O32;
 }
 

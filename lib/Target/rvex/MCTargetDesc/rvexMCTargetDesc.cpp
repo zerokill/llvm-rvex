@@ -48,7 +48,7 @@ static MCInstrInfo *creatervexMCInstrInfo() {
 
 static MCRegisterInfo *creatervexMCRegisterInfo(StringRef TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitrvexMCRegisterInfo(X, T64::R51); //TODO: is that right?
+  InitrvexMCRegisterInfo(X, rvex::R0); //TODO: is that right?
   return X;
 }
 

@@ -1,4 +1,4 @@
-//===-- Cpu0MachineFunctionInfo.cpp - Private data used for Cpu0 ----------===//
+//===-- rvexMachineFunctionInfo.cpp - Private data used for rvex ----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,38 +7,39 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cpu0MachineFunction.h"
-#include "Cpu0InstrInfo.h"
-#include "Cpu0Subtarget.h"
-#include "MCTargetDesc/Cpu0BaseInfo.h"
+#include "rvexMachineFunction.h"
+#include "rvexInstrInfo.h"
+#include "rvexSubtarget.h"
+#include "MCTargetDesc/rvexBaseInfo.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 
 using namespace llvm;
 
-bool FixGlobalBaseReg = true;
+bool rvexFixGlobalBaseReg = true;
 
-bool Cpu0FunctionInfo::globalBaseRegFixed() const {
-  return FixGlobalBaseReg;
+bool rvexFunctionInfo::globalBaseRegFixed() const {
+  return rvexFixGlobalBaseReg;
 }
 
-bool Cpu0FunctionInfo::globalBaseRegSet() const {
+bool rvexFunctionInfo::globalBaseRegSet() const {
   return GlobalBaseReg;
 }
 
-unsigned Cpu0FunctionInfo::getGlobalBaseReg() {
+unsigned rvexFunctionInfo::getGlobalBaseReg() {
   // Return if it has already been initialized.
   if (GlobalBaseReg)
     return GlobalBaseReg;
 
-  if (FixGlobalBaseReg) // $gp is the global base register.
-    return GlobalBaseReg = Cpu0::GP;
+  //rvex HACK
+  if (rvexFixGlobalBaseReg) // $gp is the global base register.
+    return GlobalBaseReg = rvex::R0;
 
   const TargetRegisterClass *RC;
-  RC = (const TargetRegisterClass*)&Cpu0::CPURegsRegClass;
+  RC = (const TargetRegisterClass*)&rvex::CPURegsRegClass;
 
   return GlobalBaseReg = MF.getRegInfo().createVirtualRegister(RC);
 }
 
-void Cpu0FunctionInfo::anchor() { }
+void rvexFunctionInfo::anchor() { }

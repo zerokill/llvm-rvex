@@ -1,4 +1,4 @@
-//====- rvexFrameLowering.cpp - rvex Frame Information -----*- C++ -*-====//
+//===-- rvexFrameLowering.cpp - rvex Frame Information --------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,133 +7,224 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//                               rvex Backend
-//
-// Author: David Juhasz
-// E-mail: juhda@caesar.elte.hu
-// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
-//
-// The research is supported by the European Union and co-financed by the
-// European Social Fund (grant agreement no. TAMOP
-// 4.2.1./B-09/1/KMR-2010-0003).
-//
-//
 // This file contains the rvex implementation of TargetFrameLowering class.
 //
 //===----------------------------------------------------------------------===//
 
 #include "rvexFrameLowering.h"
-#include "rvexRegisterInfo.h"
 #include "rvexInstrInfo.h"
-#include "rvexMachineFunctionInfo.h"
+#include "rvexMachineFunction.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/DataLayout.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 
+//- emitPrologue() and emitEpilogue must exist for main(). 
+
+//===----------------------------------------------------------------------===//
+//
+// Stack Frame Processing methods
+// +----------------------------+
+//
+// The stack is allocated decrementing the stack pointer on
+// the first instruction of a function prologue. Once decremented,
+// all stack references are done thought a positive offset
+// from the stack/frame pointer, so the stack is considering
+// to grow up! Otherwise terrible hacks would have to be made
+// to get this stack ABI compliant :)
+//
+//  The stack frame required by the ABI (after call):
+//  Offset
+//
+//  0                 ----------
+//  4                 Args to pass
+//  .                 saved $GP  (used in PIC)
+//  .                 Alloca allocations
+//  .                 Local Area
+//  .                 CPU "Callee Saved" Registers
+//  .                 saved FP
+//  .                 saved RA
+//  .                 FPU "Callee Saved" Registers
+//  StackSize         -----------
+//
+// Offset - offset from sp after stack allocation on function prologue
+//
+// The sp is the stack pointer subtracted/added from the stack size
+// at the Prologue/Epilogue
+//
+// References to the previous stack (to obtain arguments) are done
+// with offsets that exceeds the stack size: (stacksize+(4*(num_arg-1))
+//
+// Examples:
+// - reference to the actual stack frame
+//   for any local area var there is smt like : FI >= 0, StackOffset: 4
+//     st REGX, 4(SP)
+//
+// - reference to previous stack frame
+//   suppose there's a load to the 5th arguments : FI < 0, StackOffset: 16.
+//   The emitted instruction will be something like:
+//     ld REGX, 16+StackSize(SP)
+//
+// Since the total stack size is unknown on LowerFormalArguments, all
+// stack references (ObjectOffset) created to reference the function
+// arguments, are negative numbers. This way, on eliminateFrameIndex it's
+// possible to detect those references and the offsets are adjusted to
+// their real location.
+//
+//===----------------------------------------------------------------------===//
+
+//- Must have, hasFP() is pure virtual of parent
+// hasFP - Return true if the specified function should have a dedicated frame
+// pointer register.  This is true if the function has variable sized allocas or
+// if frame pointer elimination is disabled.
+bool rvexFrameLowering::hasFP(const MachineFunction &MF) const {
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+      MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
+}
+
 void rvexFrameLowering::emitPrologue(MachineFunction &MF) const {
-  MachineBasicBlock &MBB = MF.front();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineBasicBlock &MBB   = MF.front();
+  MachineFrameInfo *MFI    = MF.getFrameInfo();
+  rvexFunctionInfo *rvexFI = MF.getInfo<rvexFunctionInfo>();
   const rvexInstrInfo &TII =
     *static_cast<const rvexInstrInfo*>(MF.getTarget().getInstrInfo());
-  const rvexRegisterInfo &TRI =
-    *static_cast<const rvexRegisterInfo*>(MF.getTarget().getRegisterInfo());
-
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  unsigned SP = rvex::R1;
+  unsigned ADDiu = rvex::ADDiu;
+  // First, compute final stack size.
+  unsigned StackAlign = getStackAlignment();
+  unsigned LocalVarAreaOffset = rvexFI->getMaxCallFrameSize();
+  uint64_t StackSize =  RoundUpToAlignment(LocalVarAreaOffset, StackAlign) +
+     RoundUpToAlignment(MFI->getStackSize(), StackAlign);
 
-  // Get the number of bytes to allocate from the FrameInfo
-  int maxCallFrameSize = (int) MFI->getMaxCallFrameSize();
-  int NumBytes = (int) MFI->getStackSize();
-  NumBytes += maxCallFrameSize;
-  NumBytes += abs(getOffsetOfLocalArea());
-  NumBytes = -((NumBytes + 7) & ~7); //round up to next double-word boundary
+   // Update stack size
+  MFI->setStackSize(StackSize);
 
-  //fp and lr slots at the bottom of the frame needed only if there are calls
-  int StackOffset = (int) MFI->hasCalls() ?
-                          MF.getInfo<rvexMachineFunctionInfo>()->
-                            getArgAreaOffset() : 0;
-  NumBytes += (-StackOffset);
-  DEBUG(errs() << "NumBytes " << NumBytes << "\n");
-  //storing lr
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::SW)).addReg(T64::StackPointer).addReg(T64::LinkRegister);
-  //setting fp
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::MOVE), T64::FramePointer).addReg(T64::StackPointer);
-  //setting sp
-  TRI.addOffset(MBB, MBBI, DL, T64::StackPointer, T64::StackPointer, NumBytes);
+  // No need to allocate space on the stack.
+  if (StackSize == 0 && !MFI->adjustsStack()) return;
 
-  //temp register for addressing
-  unsigned TmpReg = T64::R10; //R0-R29 caller saved, but R0-R9 may contain args
+  MachineModuleInfo &MMI = MF.getMMI();
+  std::vector<MachineMove> &Moves = MMI.getFrameMoves();
+  MachineLocation DstML, SrcML;
 
-  //storing fp, if needed -- it's the same as the custom inserter of STORE_FP
-  if(MFI->hasCalls()) {
-    BuildMI(MBB, MBBI, DL, TII.get(T64::ADDI), TmpReg).addReg(T64::StackPointer)
-                                                      .addImm(4);
-    //BuildMI(MBB, MBBI, DL, TII.get(T64::SW)).addReg(TmpReg).addReg(T64::FramePointer);
+  // Adjust stack.
+  if (isInt<16>(-StackSize)) // addiu sp, sp, (-stacksize)
+    BuildMI(MBB, MBBI, dl, TII.get(ADDiu), SP).addReg(SP).addImm(-StackSize);
+  else { // Expand immediate that doesn't fit in 16-bit.
+	assert("No expandLargeImm(SP, -StackSize, false, TII, MBB, MBBI, dl);");
+//    expandLargeImm(SP, -StackSize, false, TII, MBB, MBBI, dl);
+  }
+
+  // emit ".cfi_def_cfa_offset StackSize"
+  MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
+  BuildMI(MBB, MBBI, dl,
+          TII.get(TargetOpcode::PROLOG_LABEL)).addSym(AdjustSPLabel);
+  DstML = MachineLocation(MachineLocation::VirtualFP);
+  SrcML = MachineLocation(MachineLocation::VirtualFP, -StackSize);
+  Moves.push_back(MachineMove(AdjustSPLabel, DstML, SrcML));
+
+  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+
+  if (CSI.size()) {
+    // Find the instruction past the last instruction that saves a callee-saved
+    // register to the stack.
+    for (unsigned i = 0; i < CSI.size(); ++i)
+      ++MBBI;
+
+    // Iterate over list of callee-saved registers and emit .cfi_offset
+    // directives.
+    MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
+    BuildMI(MBB, MBBI, dl,
+            TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
+
+    for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
+           E = CSI.end(); I != E; ++I) {
+      int64_t Offset = MFI->getObjectOffset(I->getFrameIdx());
+      unsigned Reg = I->getReg();
+      {
+        // Reg is either in CPURegs or FGR32.
+        DstML = MachineLocation(MachineLocation::VirtualFP, Offset);
+        SrcML = MachineLocation(Reg);
+        Moves.push_back(MachineMove(CSLabel, DstML, SrcML));
+      }
+    }
   }
 }
 
 void rvexFrameLowering::emitEpilogue(MachineFunction &MF,
-                                       MachineBasicBlock &MBB) const {
+                                 MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+  MachineFrameInfo *MFI            = MF.getFrameInfo();
   const rvexInstrInfo &TII =
     *static_cast<const rvexInstrInfo*>(MF.getTarget().getInstrInfo());
-  DebugLoc DL = MBBI->getDebugLoc();
+  DebugLoc dl = MBBI->getDebugLoc();
+  unsigned SP = rvex::R1;
+  unsigned ADDiu = rvex::ADDiu;
 
-  assert(MBBI->getOpcode() == T64::JRP &&
-         "Can only put epilog before 'jrp' instruction!");
+  // Get the number of bytes from FrameInfo
+  uint64_t StackSize = MFI->getStackSize();
 
-  //restore lr
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::LW)).addReg(T64::LinkRegister).addReg(T64::FramePointer);
-  //restore sp
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::MOVE), T64::StackPointer).addReg(T64::FramePointer);
-  //restore fp
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::ADDI), T64::FramePointer).addReg(T64::FramePointer).addImm(4);
-  //BuildMI(MBB, MBBI, DL, TII.get(T64::LW)).addReg(T64::FramePointer).addReg(T64::FramePointer);
+  if (!StackSize)
+    return;
+
+  // Adjust stack.
+  if (isInt<16>(StackSize)) // addiu sp, sp, (stacksize)
+    BuildMI(MBB, MBBI, dl, TII.get(ADDiu), SP).addReg(SP).addImm(StackSize);
+  else // Expand immediate that doesn't fit in 16-bit.
+	assert("No expandLargeImm(SP, StackSize, false, TII, MBB, MBBI, dl);");
+//    expandLargeImm(SP, StackSize, false, TII, MBB, MBBI, dl);
+
 }
 
-//Compute the exact address of dynamically allocated stack objects
+// This method is called immediately before PrologEpilogInserter scans the 
+//  physical registers used to determine what callee saved registers should be 
+//  spilled. This method is optional. 
+// Without this will have following errors,
+//  Target didn't implement TargetInstrInfo::storeRegToStackSlot!
+//  UNREACHABLE executed at /usr/local/llvm/3.1.test/rvex/1/src/include/llvm/
+//  Target/TargetInstrInfo.h:390!
+//  Stack dump:
+//  0.	Program arguments: /usr/local/llvm/3.1.test/rvex/1/cmake_debug_build/
+//  bin/llc -march=rvex -relocation-model=pic -filetype=asm ch0.bc -o 
+//  ch0.rvex.s
+//  1.	Running pass 'Function Pass Manager' on module 'ch0.bc'.
+//  2.	Running pass 'Prologue/Epilogue Insertion & Frame Finalization' on 
+//      function '@main'
+//  Aborted (core dumped)
+
+// Must exist
+//	ldi	$sp, $sp, 8
+//->	ret	$lr
+//	.set	macro
+//	.set	reorder
+//	.end	main
 void rvexFrameLowering::
-processFunctionBeforeFrameFinalized(MachineFunction &MF) const {
-  const TargetInstrInfo *TII = MF.getTarget().getInstrInfo();
-	const rvexRegisterInfo *TRI = static_cast<const rvexRegisterInfo*>
-                                             (MF.getTarget().getRegisterInfo());
-  rvexMachineFunctionInfo *FuncInfo = MF.getInfo<rvexMachineFunctionInfo>();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
+processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                     RegScavenger *RS) const {
+  MachineRegisterInfo& MRI = MF.getRegInfo();
 
-  bool hasCalls = MFI->hasCalls();
-  unsigned Offset = FuncInfo->getArgAreaOffset() + MFI->getMaxCallFrameSize();
+  // FIXME: remove this code if register allocator can correctly mark
+  //        $fp and $ra used or unused.
 
-  for(MachineFunction::iterator I = MF.begin(), E = MF.end();
-      I != E; ++I) {
-    MachineBasicBlock &MBB = *I;
-    for(MachineBasicBlock::iterator II = MBB.begin(), IE = MBB.end();
-        II != IE; ++II) {
-      MachineInstr *MI = &*II;
-      if(MI->getOpcode() == T64::NEWSLOT_ADDR) {
-        DebugLoc DL = MI->getDebugLoc();
-        MachineBasicBlock::iterator MBBI(MI);
-
-        unsigned Dest = MI->getOperand(0).getReg();
-        unsigned Src = MI->getOperand(1).getReg();
-
-        if(hasCalls) {
-          TRI->addOffset(MBB, MBBI, DL, Dest, Src, Offset);
-        } else {
-          BuildMI(MBB, MBBI, DL, TII->get(T64::MOVE), Dest).addReg(Src);
-        }
-        ++II;
-        MI->eraseFromParent();
-				--II;
-      }
-		}
-	}
+  // The register allocator might determine $ra is used after seeing
+  // instruction "jr $ra", but we do not want PrologEpilogInserter to insert
+  // instructions to save/restore $ra unless there is a function call.
+  // To correct this, $ra is explicitly marked unused if there is no
+  // function call.
+  if (MF.getFrameInfo()->hasCalls())
+    MRI.setPhysRegUsed(rvex::LR);
+  else {
+    MRI.setPhysRegUnused(rvex::LR);
+  }
 }
+
 

@@ -1,4 +1,4 @@
-//===-- Cpu0InstPrinter.cpp - Convert Cpu0 MCInst to assembly syntax ------===//
+//===-- rvexInstPrinter.cpp - Convert rvex MCInst to assembly syntax ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This class prints an Cpu0 MCInst to a .s file.
+// This class prints an rvex MCInst to a .s file.
 //
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "asm-printer"
-#include "Cpu0InstPrinter.h"
+#include "rvexInstPrinter.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -22,18 +22,19 @@
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
-#include "Cpu0GenAsmWriter.inc"
+#include "rvexGenAsmWriter.inc"
 
-void Cpu0InstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
-//- getRegisterName(RegNo) defined in Cpu0GenAsmWriter.inc which came from 
-//   Cpu0.td indicate.
+void rvexInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
+//- getRegisterName(RegNo) defined in rvexGenAsmWriter.inc which came from 
+//   rvex.td indicate.
   OS << '$' << StringRef(getRegisterName(RegNo)).lower();
 }
 
-void Cpu0InstPrinter::printInst(const MCInst *MI, raw_ostream &O,
+void rvexInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                 StringRef Annot) {
-//- printInstruction(MI, O) defined in Cpu0GenAsmWriter.inc which came from 
-//   Cpu0.td indicate.
+//- printInstruction(MI, O) defined in rvexGenAsmWriter.inc which came from 
+//   rvex.td indicate.
+  O << "\tc0 ";
   printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
@@ -56,7 +57,7 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
   switch (Kind) {
   default:                                 llvm_unreachable("Invalid kind!");
   case MCSymbolRefExpr::VK_None:           break;
-// Cpu0_GPREL is for llc -march=cpu0 -relocation-model=static
+// rvex_GPREL is for llc -march=rvex -relocation-model=static
   case MCSymbolRefExpr::VK_Cpu0_GPREL:     OS << "%gp_rel("; break;
   case MCSymbolRefExpr::VK_Cpu0_GOT16:     OS << "%got(";    break;
   case MCSymbolRefExpr::VK_Cpu0_GOT:       OS << "%got(";    break;
@@ -79,7 +80,7 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
     OS << ')';
 }
 
-void Cpu0InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
+void rvexInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
                                    raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
@@ -96,7 +97,7 @@ void Cpu0InstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   printExpr(Op.getExpr(), O);
 }
 
-void Cpu0InstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
+void rvexInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
                                        raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(opNum);
   if (MO.isImm())
@@ -105,18 +106,18 @@ void Cpu0InstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
     printOperand(MI, opNum, O);
 }
 
-void Cpu0InstPrinter::
+void rvexInstPrinter::
 printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
   // Load/Store memory operands -- imm($reg)
   // If PIC target the target is loaded as the
   // pattern ld $t9,%call24($gp)
   printOperand(MI, opNum+1, O);
-  O << "(";
+  O << "[";
   printOperand(MI, opNum, O);
-  O << ")";
+  O << "]";
 }
 
-void Cpu0InstPrinter::
+void rvexInstPrinter::
 printMemOperandEA(const MCInst *MI, int opNum, raw_ostream &O) {
   // when using stack locations for not load/store instructions
   // print the same way as all normal 3 operand instructions.

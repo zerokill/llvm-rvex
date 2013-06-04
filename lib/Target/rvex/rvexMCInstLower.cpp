@@ -1,4 +1,4 @@
-//===-- Cpu0MCInstLower.cpp - Convert Cpu0 MachineInstr to MCInst ---------===//
+//===-- rvexMCInstLower.cpp - Convert rvex MachineInstr to MCInst ---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,15 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains code to lower Cpu0 MachineInstrs to their corresponding
+// This file contains code to lower rvex MachineInstrs to their corresponding
 // MCInst records.
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cpu0MCInstLower.h"
-#include "Cpu0AsmPrinter.h"
-#include "Cpu0InstrInfo.h"
-#include "MCTargetDesc/Cpu0BaseInfo.h"
+#include "rvexMCInstLower.h"
+#include "rvexAsmPrinter.h"
+#include "rvexInstrInfo.h"
+#include "MCTargetDesc/rvexBaseInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOperand.h"
@@ -30,15 +30,15 @@
 
 using namespace llvm;
 
-Cpu0MCInstLower::Cpu0MCInstLower(Cpu0AsmPrinter &asmprinter)
+rvexMCInstLower::rvexMCInstLower(rvexAsmPrinter &asmprinter)
   : AsmPrinter(asmprinter) {}
 
-void Cpu0MCInstLower::Initialize(Mangler *M, MCContext* C) {
+void rvexMCInstLower::Initialize(Mangler *M, MCContext* C) {
   Mang = M;
   Ctx = C;
 }
 
-MCOperand Cpu0MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
+MCOperand rvexMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
                                               MachineOperandType MOTy,
                                               unsigned Offset) const {
   MCSymbolRefExpr::VariantKind Kind;
@@ -46,16 +46,16 @@ MCOperand Cpu0MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
 
   switch(MO.getTargetFlags()) {
   default:                   llvm_unreachable("Invalid target flag!");
-// Cpu0_GPREL is for llc -march=cpu0 -relocation-model=static -cpu0-islinux-
+// rvex_GPREL is for llc -march=rvex -relocation-model=static -rvex-islinux-
 //  format=false (global var in .sdata).
-  case Cpu0II::MO_GPREL:     Kind = MCSymbolRefExpr::VK_Cpu0_GPREL; break;
+  case rvexII::MO_GPREL:     Kind = MCSymbolRefExpr::VK_Cpu0_GPREL; break;
 
-  case Cpu0II::MO_GOT16:     Kind = MCSymbolRefExpr::VK_Cpu0_GOT16; break;
-  case Cpu0II::MO_GOT:       Kind = MCSymbolRefExpr::VK_Cpu0_GOT; break;
-// ABS_HI and ABS_LO is for llc -march=cpu0 -relocation-model=static (global 
+  case rvexII::MO_GOT16:     Kind = MCSymbolRefExpr::VK_Cpu0_GOT16; break;
+  case rvexII::MO_GOT:       Kind = MCSymbolRefExpr::VK_Cpu0_GOT; break;
+// ABS_HI and ABS_LO is for llc -march=rvex -relocation-model=static (global 
 //  var in .data).
-  case Cpu0II::MO_ABS_HI:    Kind = MCSymbolRefExpr::VK_Cpu0_ABS_HI; break;
-  case Cpu0II::MO_ABS_LO:    Kind = MCSymbolRefExpr::VK_Cpu0_ABS_LO; break;
+  case rvexII::MO_ABS_HI:    Kind = MCSymbolRefExpr::VK_Cpu0_ABS_HI; break;
+  case rvexII::MO_ABS_LO:    Kind = MCSymbolRefExpr::VK_Cpu0_ABS_LO; break;
   }
 
   switch (MOTy) {
@@ -80,7 +80,7 @@ MCOperand Cpu0MCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   return MCOperand::CreateExpr(AddExpr);
 }
 
-MCOperand Cpu0MCInstLower::LowerOperand(const MachineOperand& MO,
+MCOperand rvexMCInstLower::LowerOperand(const MachineOperand& MO,
                                         unsigned offset) const {
   MachineOperandType MOTy = MO.getType();
 
@@ -101,18 +101,15 @@ MCOperand Cpu0MCInstLower::LowerOperand(const MachineOperand& MO,
   return MCOperand();
 }
 
-void Cpu0MCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
-  DEBUG(errs() << "wanneer ben ik hier!\n");
+void rvexMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
 
   OutMI.setOpcode(MI->getOpcode());
   
   for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
-    DEBUG(errs() << "for!\n");
     const MachineOperand &MO = MI->getOperand(i);
     MCOperand MCOp = LowerOperand(MO);
 
     if (MCOp.isValid())
-      DEBUG(errs() << "if!\n");
       OutMI.addOperand(MCOp);
   }
 }

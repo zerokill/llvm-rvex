@@ -1,4 +1,4 @@
-//===- rvexRegisterInfo.cpp - rvex Register Information -----*- C++ -*-===//
+//===-- rvexRegisterInfo.cpp - rvex Register Information -== --------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,30 +7,32 @@
 //
 //===----------------------------------------------------------------------===//
 //
-//                               rvex Backend
-//
-// Author: David Juhasz
-// E-mail: juhda@caesar.elte.hu
-// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
-//
-// The research is supported by the European Union and co-financed by the
-// European Social Fund (grant agreement no. TAMOP
-// 4.2.1./B-09/1/KMR-2010-0003).
-//
-//
 // This file contains the rvex implementation of the TargetRegisterInfo class.
 //
 //===----------------------------------------------------------------------===//
 
-#include "rvex.h"
+#define DEBUG_TYPE "rvex-reg-info"
+
 #include "rvexRegisterInfo.h"
+#include "rvex.h"
+#include "rvexSubtarget.h"
+#include "rvexMachineFunction.h"
+#include "llvm/Constants.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/Type.h"
+#include "llvm/Function.h"
+#include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
-#include "llvm/CodeGen/RegisterScavenging.h"
-#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetInstrInfo.h"
-#include "llvm/Type.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -39,125 +41,128 @@
 
 using namespace llvm;
 
-rvexRegisterInfo::rvexRegisterInfo(const TargetInstrInfo &tii)
-  : rvexGenRegisterInfo(T64::LinkRegister), TII(tii) {
+rvexRegisterInfo::rvexRegisterInfo(const rvexSubtarget &ST,
+                                   const TargetInstrInfo &tii)
+  : rvexGenRegisterInfo(rvex::LR), Subtarget(ST), TII(tii) {}
+
+//===----------------------------------------------------------------------===//
+// Callee Saved Registers methods
+//===----------------------------------------------------------------------===//
+/// rvex Callee Saved Registers
+// In rvexCallConv.td,
+// def CSR_O32 : CalleeSavedRegs<(add LR, FP,
+//                                   (sequence "S%u", 2, 0))>;
+// llc create CSR_O32_SaveList and CSR_O32_RegMask from above defined.
+const uint16_t* rvexRegisterInfo::
+getCalleeSavedRegs(const MachineFunction *MF) const
+{
+  return CSR_O32_SaveList;
 }
 
-const uint16_t* rvexRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
-                                                                         const {
-  //Although T64::FramePointer is officially callee saved, it's not listed
-  //here, because of special handling in prologue/epilogue sections.
-
-  static const uint16_t CalleeSavedRegs[] = {
-    T64::R30, T64::R31, T64::R32, T64::R33, T64::R34, T64::R35,
-    T64::R36, T64::R37, T64::R38, T64::R39, T64::R40, T64::R41,
-    T64::R42, T64::R43, T64::R44, T64::R45, T64::R46, T64::R47,
-    T64::R48, T64::R49, T64::R50, T64::R51, 0 };
-
-  return CalleeSavedRegs;
+const uint32_t*
+rvexRegisterInfo::getCallPreservedMask(CallingConv::ID) const
+{
+  return CSR_O32_RegMask; 
 }
 
-BitVector rvexRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
+// pure virtual method
+BitVector rvexRegisterInfo::
+getReservedRegs(const MachineFunction &MF) const {
+  static const uint16_t ReservedCPURegs[] = {
+    rvex::R0, rvex::R1, rvex::LR, rvex::PC
+  };
   BitVector Reserved(getNumRegs());
-  Reserved.set(T64::R51); //Reserved for frame index elimination purposes
-  //Reserved.set(T64::FramePointer);
-  Reserved.set(T64::ThreadLocalData);
-  Reserved.set(T64::StackPointer);
-  Reserved.set(T64::LinkRegister);
-  Reserved.set(T64::SN);
-  Reserved.set(T64::IDN0);
-  Reserved.set(T64::IDN1);
-  Reserved.set(T64::UDN0);
-  Reserved.set(T64::UDN1);
-  Reserved.set(T64::UDN2);
-  Reserved.set(T64::UDN3);
-  Reserved.set(T64::Zero);
+  typedef TargetRegisterClass::iterator RegIter;
+
+  for (unsigned I = 0; I < array_lengthof(ReservedCPURegs); ++I)
+    Reserved.set(ReservedCPURegs[I]);
+
+  // If GP is dedicated as a global base register, reserve it.
+  if (MF.getInfo<rvexFunctionInfo>()->globalBaseRegFixed()) {
+    //GlobalBaseReg HACK
+    Reserved.set(rvex::R0);
+  }
+
   return Reserved;
 }
 
+//- If eliminateFrameIndex() is empty, it will hang on run. 
+// pure virtual method
+// FrameIndex represent objects inside a abstract stack.
+// We must replace FrameIndex with an stack/frame pointer
+// direct reference.
 void rvexRegisterInfo::
-eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
-                              MachineBasicBlock::iterator I) const {
-  //Call frame area is handled in prologue and epilogue. Pseudo instructions
-  //are needed to make information about call frame sizes available.
-  MBB.erase(I);
-}
-
-void
-rvexRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                        int SPAdj, RegScavenger *RS) const {
-  assert(SPAdj == 0 && "Unexpected");
-
+eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
+                     RegScavenger *RS) const {
   MachineInstr &MI = *II;
-  MachineBasicBlock &MBB = *MI.getParent();
-  MachineFunction *MF = MBB.getParent();
-  DebugLoc DL = MI.getDebugLoc();
+  MachineFunction &MF = *MI.getParent()->getParent();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
 
-  int Opc = MI.getOpcode();
-
-  unsigned DestReg = 0;
-  MachineOperand *FrameIndexOp = 0;
-
-  if(Opc == T64::MOVFI) {
-    DestReg = MI.getOperand(0).getReg();
-    FrameIndexOp = &MI.getOperand(1);
-  } else if(Opc == T64::SW || Opc == T64::LW) {
-    unsigned i = 0;
-    while (!MI.getOperand(i).isFI()) {
-      ++i;
-      assert(i < MI.getNumOperands() && "Instr doesn't have FrameIndex operand!");
-    }
-    DestReg = T64::R51;
-    FrameIndexOp = &MI.getOperand(i);
+  unsigned i = 0;
+  while (!MI.getOperand(i).isFI()) {
+    ++i;
+    assert(i < MI.getNumOperands() &&
+           "Instr doesn't have FrameIndex operand!");
   }
 
-  int Offset = MF->getFrameInfo()->getObjectOffset(FrameIndexOp->getIndex());
+  DEBUG(errs() << "\nFunction : " << MF.getFunction()->getName() << "\n";
+        errs() << "<--------->\n" << MI);
 
-//  addOffset(MBB, II, DL, DestReg, T64::FramePointer, Offset);
+  int FrameIndex = MI.getOperand(i).getIndex();
+  uint64_t stackSize = MF.getFrameInfo()->getStackSize();
+  int64_t spOffset = MF.getFrameInfo()->getObjectOffset(FrameIndex);
 
-  switch(Opc) {
-    default: llvm_unreachable("FrameIndex in unexpected instruction!");
-    case T64::MOVFI:
-      MI.eraseFromParent();
-      break;
-    case T64::SW:
-    case T64::LW:
-     FrameIndexOp->ChangeToRegister(DestReg, false);
-     break;
+  DEBUG(errs() << "FrameIndex : " << FrameIndex << "\n"
+               << "spOffset   : " << spOffset << "\n"
+               << "stackSize  : " << stackSize << "\n");
+
+  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+  int MinCSFI = 0;
+  int MaxCSFI = -1;
+
+  if (CSI.size()) {
+    MinCSFI = CSI[0].getFrameIdx();
+    MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
   }
-}
 
-unsigned rvexRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  //return T64::FramePointer;
-    return 0;
-}
+  // The following stack frame objects are always referenced relative to $sp:
+  //  1. Outgoing arguments.
+  //  2. Pointer to dynamically allocated stack space.
+  //  3. Locations for callee-saved registers.
+  // Everything else is referenced relative to whatever register
+  // getFrameRegister() returns.
+  unsigned FrameReg;
 
-unsigned rvexRegisterInfo::getEHExceptionRegister() const {
-  llvm_unreachable("What is the exception register");
-  return 0;
-}
+    FrameReg = getFrameRegister(MF);
 
-unsigned rvexRegisterInfo::getEHHandlerRegister() const {
-  llvm_unreachable("What is the exception handler register");
-  return 0;
-}
+  // Calculate final offset.
+  // - There is no need to change the offset if the frame object is one of the
+  //   following: an outgoing argument, pointer to a dynamically allocated
+  //   stack space or a $gp restore location,
+  // - If the frame object is any of the following, its offset must be adjusted
+  //   by adding the size of the stack:
+  //   incoming argument, callee-saved register location or local variable.
+  int64_t Offset;
+  Offset = spOffset + (int64_t)stackSize;
 
-// Hier gaat sowieso nog iets fout. Controleer hoe de offset berekent wordt en of dit klopt.
-void rvexRegisterInfo::
-addOffset(MachineBasicBlock &MBB, MachineBasicBlock::iterator I, DebugLoc DL,
-          unsigned Dest, unsigned Src, int Offset) const {
-  if(Offset >= -128 && Offset <= 127) {
-    BuildMI(MBB, I, DL, TII.get(T64::ADDI), Dest).addReg(Src).
-                                                  addImm(Offset);
-  } else if(Offset >= -32768 && Offset <= 32767) {
-    BuildMI(MBB, I, DL, TII.get(T64::ADDI), Dest).addReg(Src).
-                                                   addImm(Offset);
-  } else {
-    unsigned OffHi = (unsigned) Offset >> 16U;
-    BuildMI(MBB, I, DL, TII.get(T64::ADDI), Dest).addReg(Src).
-                                                   addImm(Offset & ((1 << 16) - 1));
-    BuildMI(MBB, I, DL, TII.get(T64::AULI), Dest).addReg(Dest).
-                                                  addImm(OffHi);
+  Offset    += MI.getOperand(i+1).getImm();
+
+  DEBUG(errs() << "Offset     : " << Offset << "\n" << "<--------->\n");
+
+  // If MI is not a debug value, make sure Offset fits in the 16-bit immediate
+  // field.
+  if (!MI.isDebugValue() && !isInt<16>(Offset)) {
+	assert("(!MI.isDebugValue() && !isInt<16>(Offset))");
   }
+
+  MI.getOperand(i).ChangeToRegister(FrameReg, false);
+  MI.getOperand(i+1).ChangeToImmediate(Offset);
+}
+
+// pure virtual method
+unsigned rvexRegisterInfo::
+getFrameRegister(const MachineFunction &MF) const {
+  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  return (rvex::R1);
 }
 

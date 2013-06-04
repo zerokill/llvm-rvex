@@ -1,4 +1,4 @@
-;===- ./lib/Target/rvex/TargetInfo/LLVMBuild.txt ---------------*- Conf -*--===;
+;===- ./lib/Target/rvex/InstPrinter/LLVMBuild.txt --------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -17,7 +17,7 @@
 
 [component_0]
 type = Library
-name = rvexInfo
+name = rvexAsmPrinter
 parent = rvex
-required_libraries = MC Support Target
+required_libraries = MC Support
 add_to_library_groups = rvex

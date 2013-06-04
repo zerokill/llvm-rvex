@@ -43,6 +43,10 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/MC/MCInstrItineraries.h"
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
+
 using namespace llvm;
 using namespace rvexII;
 
@@ -142,6 +146,7 @@ rvexVLIWPacketizerList::rvexVLIWPacketizerList(MachineFunction &MF,
 }
 
 bool rvexVLIWPacketizer::runOnMachineFunction(MachineFunction &Fn) {
+  DEBUG(errs() << "Voor VLIW packetizer!\n");
   const TargetInstrInfo *TII = Fn.getTarget().getInstrInfo();
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfo>();
   MachineDominatorTree &MDT = getAnalysis<MachineDominatorTree>();
@@ -299,7 +304,7 @@ bool rvexVLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
       }
 
       // zero-reg can be targeted by multiple instructions
-      else if(DepType == SDep::Output && DepReg != T64::Zero) {
+      else if(DepType == SDep::Output && DepReg != rvex::R0) {
         FoundSequentialDependence = true;
       }
 
@@ -343,21 +348,24 @@ bool rvexVLIWPacketizerList::isLegalToPruneDependencies(SUnit *SUI,
 
 // isDirectJump - Return true if the instruction is a direct jump.
 bool rvexVLIWPacketizerList::isDirectJump(const MachineInstr *MI) const {
-  return (MI->getOpcode() == T64::J);
+  //return (MI->getOpcode() == T64::J);
+  return (MI->getOpcode() == rvex::NOP);
 }
 
 // isrvexSoloInstruction - Return true if TSFlags:4 is 1.
 bool rvexVLIWPacketizerList::
 isrvexSoloInstruction(const MachineInstr *MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
-  return ((F >> SoloPos) & SoloMask);
+  //return ((F >> SoloPos) & SoloMask);
+  return false;
 }
 
 // isrvexLongInstruction - Return true if TSFlags:5 is 1.
 bool rvexVLIWPacketizerList::
 isrvexLongInstruction(const MachineInstr *MI) const {
   const uint64_t F = MI->getDesc().TSFlags;
-  return ((F >> LongPos) & LongMask);
+  //return ((F >> LongPos) & LongMask);
+  return false;
 }
 
 // rvexTypeOf - Return the appropriate value of rvexType.
@@ -370,7 +378,8 @@ rvexTypeOf(const MachineInstr *MI) const {
 // isrvexCtrInstruction - Return true if rvexType of MI is TypeCtr.
 bool rvexVLIWPacketizerList::
 isrvexCtrInstruction(const MachineInstr *MI) const {
-  return (rvexTypeOf(MI) == TypeCtr);
+  //return (rvexTypeOf(MI) == TypeCtr);
+  return false;
 }
 
 // isrvexMemInstruction - Return true if rvexType of MI is TypeMeS or
@@ -378,7 +387,8 @@ isrvexCtrInstruction(const MachineInstr *MI) const {
 bool rvexVLIWPacketizerList::
 isrvexMemInstruction(const MachineInstr *MI) const {
   rvexType type = rvexTypeOf(MI);
-  return (type == TypeMeS || type == TypeMeL);
+  //return (type == TypeMeS || type == TypeMeL);
+  return false;
 }
 
 //===----------------------------------------------------------------------===//

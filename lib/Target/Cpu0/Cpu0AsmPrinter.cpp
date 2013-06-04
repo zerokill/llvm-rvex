@@ -38,10 +38,6 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
-
 using namespace llvm;
 
 bool Cpu0AsmPrinter::runOnMachineFunction(MachineFunction &MF) {
@@ -55,10 +51,7 @@ void Cpu0AsmPrinter::EmitInstruction(const MachineInstr *MI) {
   SmallString<128> Str;
   raw_svector_ostream OS(Str);
 
-  DEBUG(errs() << "MI:" << MI << "\n");
-
   if(MI->isBundle()) {
-    DEBUG(errs() << "MI bundle:" << MI << "\n");
     std::vector<const MachineInstr*> BundleMIs;
 
     unsigned int IgnoreCount = 0;
@@ -79,25 +72,21 @@ void Cpu0AsmPrinter::EmitInstruction(const MachineInstr *MI) {
     unsigned Size = BundleMIs.size();
     assert((Size+IgnoreCount) == MI->getBundleSize() && "Corrupt Bundle!");
 
-    
+
     for(unsigned Index = 0; Index < Size; ++Index) {
       const MachineInstr *BMI = BundleMIs[Index];
-      //OutStreamer.EmitRawText(StringRef("\tc0"));
 
       MCInst TmpInst0;
       MCInstLowering.Lower(BMI, TmpInst0);
       OutStreamer.EmitInstruction(TmpInst0);
-      DEBUG(errs() << "inst:" << TmpInst0 << "\n");
+
     }
 
-    OutStreamer.EmitRawText(StringRef(";; end of bundle\n\n"));
 
   } else {
-    //OutStreamer.EmitRawText(StringRef("\tc0"));
     MCInst TmpInst0;
     MCInstLowering.Lower(MI, TmpInst0);
     OutStreamer.EmitInstruction(TmpInst0);
-    OutStreamer.EmitRawText(StringRef(";; end of bundle\n\n"));
   }
 
 }
@@ -296,21 +285,7 @@ void Cpu0AsmPrinter::PrintDebugValueComment(const MachineInstr *MI,
   OS << "PrintDebugValueComment()";
 }
 
-static MCInstPrinter *createCpu0MCInstPrinter(const Target &T,
-                                                 unsigned SyntaxVariant,
-                                                 const MCAsmInfo &MAI,
-                                                 const MCInstrInfo &MII,
-                                                 const MCRegisterInfo &MRI,
-                                                 const MCSubtargetInfo &STI) {
-  if (SyntaxVariant == 0)
-    return(new Cpu0InstPrinter(MAI, MII, MRI));
-  else
-   return NULL;
-}
-
 // Force static initialization.
 extern "C" void LLVMInitializeCpu0AsmPrinter() {
   RegisterAsmPrinter<Cpu0AsmPrinter> X(TheCpu0Target);
-  TargetRegistry::RegisterMCInstPrinter(TheCpu0Target,
-                                        createCpu0MCInstPrinter);
 }

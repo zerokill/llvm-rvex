@@ -98,7 +98,7 @@ void Cpu0FrameLowering::emitPrologue(MachineFunction &MF) const {
     *static_cast<const Cpu0InstrInfo*>(MF.getTarget().getInstrInfo());
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
-  unsigned SP = Cpu0::R1;
+  unsigned SP = Cpu0::SP;
   unsigned ADDiu = Cpu0::ADDiu;
   // First, compute final stack size.
   unsigned StackAlign = getStackAlignment();
@@ -167,7 +167,7 @@ void Cpu0FrameLowering::emitEpilogue(MachineFunction &MF,
   const Cpu0InstrInfo &TII =
     *static_cast<const Cpu0InstrInfo*>(MF.getTarget().getInstrInfo());
   DebugLoc dl = MBBI->getDebugLoc();
-  unsigned SP = Cpu0::R1;
+  unsigned SP = Cpu0::SP;
   unsigned ADDiu = Cpu0::ADDiu;
 
   // Get the number of bytes from FrameInfo

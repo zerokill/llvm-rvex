@@ -304,7 +304,7 @@ bool Cpu0VLIWPacketizerList::isLegalToPacketizeTogether(SUnit *SUI,
       }
 
       // zero-reg can be targeted by multiple instructions
-      else if(DepType == SDep::Output && DepReg != Cpu0::R0) {
+      else if(DepType == SDep::Output && DepReg != Cpu0::ZERO) {
         FoundSequentialDependence = true;
       }
 

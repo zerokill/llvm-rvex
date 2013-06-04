@@ -43,7 +43,7 @@ copyPhysReg(MachineBasicBlock &MBB,
 
   if (Cpu0::CPURegsRegClass.contains(DestReg)) { // Copy to CPU Reg.
     if (Cpu0::CPURegsRegClass.contains(SrcReg))
-      Opc = Cpu0::ADD, ZeroReg = Cpu0::R0;
+      Opc = Cpu0::ADD, ZeroReg = Cpu0::ZERO;
     else if (SrcReg == Cpu0::HI)
       Opc = Cpu0::MFHI, SrcReg = 0;
     else if (SrcReg == Cpu0::LO)

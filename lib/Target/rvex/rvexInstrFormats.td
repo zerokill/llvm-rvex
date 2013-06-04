@@ -1,123 +1,179 @@
-//===- rvexInstrFormats.td - rvex Instruction Formats --*- tablegen -*-===//
-// 
+//===-- rvexInstrFormats.td - rvex Instruction Formats -----*- tablegen -*-===//
+//
 //                     The LLVM Compiler Infrastructure
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
-// 
-//===----------------------------------------------------------------------===//
-//
-//                               rvex Backend
-//
-// Author: David Juhasz
-// E-mail: juhda@caesar.elte.hu
-// Institute: Dept. of Programming Languages and Compilers, ELTE IK, Hungary
-//
-// The research is supported by the European Union and co-financed by the
-// European Social Fund (grant agreement no. TAMOP
-// 4.2.1./B-09/1/KMR-2010-0003).
-//
 //
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-//                         rvex Instruction Flags
+//  Describe rvex instructions format
 //
-//                    *** Must match rvexBaseInfo.h ***
+//  CPU INSTRUCTION FORMATS
+//
+//  opcode  - operation code.
+//  ra      - dst reg, only used on 3 regs instr.
+//  rb      - src reg.
+//  rc      - src reg (on a 3 reg instr).
+//  cx      - immediate
+//
 //===----------------------------------------------------------------------===//
 
-class T64Type<bits<4> t> {
-  bits<4> Value = t;
+// Format specifies the encoding used by the instruction.  This is part of the
+// ad-hoc solution used to emit machine instruction encodings by our machine
+// code emitter.
+class Format<bits<4> val> {
+  bits<4> Value = val;
 }
 
-def TypePSEUDO : T64Type<0>;
-def TypeArS    : T64Type<1>;
-def TypeArL    : T64Type<2>;
-def TypeBmS    : T64Type<3>;
-def TypeBmL    : T64Type<4>;
-def TypeCtr    : T64Type<5>;
-def TypeMeS    : T64Type<6>;
-def TypeMeL    : T64Type<7>;
-def TypeIll    : T64Type<8>;
+def Pseudo    : Format<0>;
+def FrmR      : Format<1>;
+def FrmI      : Format<2>;
+def FrmJ      : Format<3>;
+def FrmOther  : Format<4>; // Instruction w/ a custom format
 
-//===----------------------------------------------------------------------===//
-//                        Instruction class declaration
-//===----------------------------------------------------------------------===//
 
-class InstT64<dag outs, dag ins, string asmstr, list<dag> pattern, string cstr,
-              InstrItinClass itin, T64Type type> : Instruction {
-  let Namespace = "T64";
+class CType<bits<4> val> {
+  bits<4> Value = val;
+}
+def TypeIIAlu              : CType<0>;
+def TypeIILoad             : CType<1>;
+def TypeIIStore            : CType<2>;
+def TypeIIBranch           : CType<3>;
+def TypeIIHiLo             : CType<4>;
+def TypeIIImul             : CType<5>;
+def TypeIIIdiv             : CType<6>;
+def TypeIIPseudo           : CType<7>;
 
-  dag OutOperandList = outs;
-  dag InOperandList = ins;
-  let AsmString = asmstr;
-  let Pattern = pattern;
-  let Constraints = cstr;
-  let Itinerary = itin;
+// Generic rvex Format
+class rvexInst<dag outs, dag ins, string asmstr, list<dag> pattern,
+               InstrItinClass itin, Format f, CType type>: Instruction
+{
+  field bits<32> Inst;
+  Format Form = f;
 
-  // *** Must match rvexBaseInfo.h ***
-  T64Type rvexType = type;
-  let TSFlags{0-3} = rvexType.Value;
+  let Namespace = "rvex";
 
+  let Size = 4;
+
+  bits<8> Opcode = 0;
+
+  // Top 8 bits are the 'opcode' field
+  let Inst{31-24} = Opcode;
+
+  let OutOperandList = outs;
+  let InOperandList  = ins;
+
+  let AsmString   = asmstr;
+  let Pattern     = pattern;
+  let Itinerary   = itin;
+
+  //
+  // Attributes specific to rvex instructions...
+  //
+
+
+
+  // TSFlags layout should be kept in sync with rvexInstrInfo.h.
+  CType rvexType = type;
+  let TSFlags{0-3}   = rvexType.Value;
+  
   bits<1> isrvexSolo = 0;
   let TSFlags{4} = isrvexSolo;
 
   bits<1> isrvexLong = 0;
   let TSFlags{5} = isrvexLong;
-  // *** The code above must match rvexBaseInfo.h ***
+
+  let DecoderNamespace = "rvex";
+
+  field bits<32> SoftFail = 0;
 }
 
-class InstArST64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, ArS, TypeArS> {}
+//===----------------------------------------------------------------------===//
+// Format A instruction class in rvex : <|opcode|ra|rb|rc|cx|>
+//===----------------------------------------------------------------------===//
 
-class InstArLT64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, ArL, TypeArL> {
-  let isrvexLong = 1;
+class FA<bits<8> op, dag outs, dag ins, string asmstr,
+         list<dag> pattern, InstrItinClass itin, CType type>:
+      rvexInst<outs, ins, asmstr, pattern, itin, FrmR, type>
+{
+  bits<4>  ra;
+  bits<4>  rb;
+  bits<4>  rc;
+  bits<12> shamt;
+
+  let Opcode = op;
+
+  let Inst{23-20} = ra;
+  let Inst{19-16} = rb;
+  let Inst{15-12} = rc;
+  let Inst{11-0}  = shamt;
 }
 
-class InstBmST64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, BmS, TypeBmS> {}
+//===----------------------------------------------------------------------===//
+// Format I instruction class in rvex : <|opcode|ra|rb|cx|>
+//===----------------------------------------------------------------------===//
 
-class InstBmLT64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, BmL, TypeBmL> {
-  let isrvexLong = 1;
+class FL<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+         InstrItinClass itin, CType type>: rvexInst<outs, ins, asmstr, pattern, itin, FrmI, type>
+{
+  bits<4>  ra;
+  bits<4>  rb;
+  bits<16> imm16;
+
+  let Opcode = op;
+
+  let Inst{23-20} = ra;
+  let Inst{19-16} = rb;
+  let Inst{15-0}  = imm16;
 }
 
-class InstCtrT64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, Ctr, TypeCtr> {
-  let isrvexLong = 1;
+//===----------------------------------------------------------------------===//
+// Format J instruction class in rvex : <|opcode|address|>
+//===----------------------------------------------------------------------===//
+
+class FJ<bits<8> op, dag outs, dag ins, string asmstr, list<dag> pattern,
+         InstrItinClass itin, CType type>: rvexInst<outs, ins, asmstr, pattern, itin, FrmJ, type>
+{
+  bits<24> addr;
+
+  let Opcode = op;
+
+  let Inst{23-0} = addr;
 }
 
-class InstMeST64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, MeS, TypeMeS> {}
+/*
+class InstIIAlu   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIAlu> {}
 
-class InstMeLT64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, MeL, TypeMeL> {
-  let isrvexLong = 1;
-}
+class InstIILoad   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIILoad> {}   
 
-class InstIllT64<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, Ill, TypeIll> {}
+class InstIIStore   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIStore> {}
 
+class InstIIBranch   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIBranch> {} 
 
-class PseudoT64<dag outs, dag ins, string asmstr, list<dag> pattern> :
-      InstT64<outs, ins, asmstr, pattern, "", PSEUDO, TypePSEUDO> {
-  let isCodeGenOnly = 1;
-  let isPseudo = 1;
-  let isrvexSolo = 1;
-}
+class InstIIHiLo   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIHiLo> {}
 
-class FL<dag outs, dag ins, string asmstr, list<dag> pattern,
-                 string cstr = ""> : InstT64<outs, ins, asmstr, pattern,
-                                             cstr, Ill, TypeIll> {}
+class InstIIImul   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIImul> {}   
 
+class InstIIIdiv   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIIdiv> {}
 
+class InstIIPseudo   <bits<8> op, dag outs, dag ins, string asmstr,
+                  list<dag> pattern, InstrItinClass itin>: rvexInst<outs, ins, asmstr, pattern,
+                                              itin, FrmR, TypeIIPseudo> {}   
 
+*/

@@ -1,4 +1,4 @@
-//===-- Cpu0AsmPrinter.h - Cpu0 LLVM Assembly Printer ----------*- C++ -*--===//
+//===-- rvexAsmPrinter.h - rvex LLVM Assembly Printer ----------*- C++ -*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,21 +7,22 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Cpu0 Assembly printer class.
+// rvex Assembly printer class.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CPU0ASMPRINTER_H
-#define CPU0ASMPRINTER_H
+#ifndef rvexASMPRINTER_H
+#define rvexASMPRINTER_H
 
-#include "Cpu0MachineFunction.h"
-#include "Cpu0MCInstLower.h"
-#include "Cpu0Subtarget.h"
+#include "rvexMachineFunction.h"
+#include "rvexMCInstLower.h"
+#include "rvexSubtarget.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Target/TargetMachine.h"
 
 #include "llvm/Support/raw_ostream.h"
+
 
 namespace llvm {
 class MCStreamer;
@@ -30,23 +31,23 @@ class MachineBasicBlock;
 class Module;
 class raw_ostream;
 
-class LLVM_LIBRARY_VISIBILITY Cpu0AsmPrinter : public AsmPrinter {
+class LLVM_LIBRARY_VISIBILITY rvexAsmPrinter : public AsmPrinter {
 
   void EmitInstrWithMacroNoAT(const MachineInstr *MI);
 
 public:
 
-  const Cpu0Subtarget *Subtarget;
-  const Cpu0FunctionInfo *Cpu0FI;
-  Cpu0MCInstLower MCInstLowering;
+  const rvexSubtarget *Subtarget;
+  const rvexFunctionInfo *rvexFI;
+  rvexMCInstLower MCInstLowering;
 
-  explicit Cpu0AsmPrinter(TargetMachine &TM,  MCStreamer &Streamer)
+  explicit rvexAsmPrinter(TargetMachine &TM,  MCStreamer &Streamer)
     : AsmPrinter(TM, Streamer), MCInstLowering(*this) {
-    Subtarget = &TM.getSubtarget<Cpu0Subtarget>();
+    Subtarget = &TM.getSubtarget<rvexSubtarget>();
   }
 
   virtual const char *getPassName() const {
-    return "Cpu0 Assembly Printer";
+    return "rvex Assembly Printer";
   }
 
   virtual bool runOnMachineFunction(MachineFunction &MF);
